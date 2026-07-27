@@ -192,11 +192,14 @@ class Pipeline:
         self,
         db_path: str | Path = "data/jobs.duckdb",
         parquet_path: str | Path = "data/ods_parquet",
-    ):
+        iceberg_path: str | Path = "data/ods_iceberg",
+    ) -> None:
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.parquet_path = str(Path(parquet_path))
         Path(parquet_path).mkdir(parents=True, exist_ok=True)
+        self.iceberg_path = str(Path(iceberg_path))
+        Path(iceberg_path).mkdir(parents=True, exist_ok=True)
         self.con = duckdb.connect(str(self.db_path))
 
     def init_schema(self) -> None:
@@ -420,6 +423,74 @@ class Pipeline:
         )
         files = list(Path(self.parquet_path).rglob("*.parquet"))
         return {"files": len(files), "bytes": sum(f.stat().st_size for f in files)}
+
+    # ── Iceberg 冷存储 (time travel) ────────────────────────────────
+
+    def export_to_iceberg(self) -> dict:
+        """将 ODS 最新数据导出为 Iceberg 格式, 支持 time travel"""
+        con = self.con
+        con.execute("LOAD iceberg")
+
+        # 写完整 ODS 表 (含历史版本, 非仅 is_latest)
+        # Iceberg 自动创建快照, time travel 可回溯任意版本
+        con.execute(
+            f"COPY (SELECT * FROM ods_raw_jobs) TO '{self.iceberg_path}' "
+            f"(FORMAT ICEBERG, OVERWRITE_OR_IGNORE 1)"
+        )
+
+        # 统计
+        data_files = list((Path(self.iceberg_path) / "data").rglob("*.parquet"))
+        size = sum(f.stat().st_size for f in data_files) if data_files else 0
+        meta_files = list((Path(self.iceberg_path) / "metadata").rglob("*"))
+        meta_size = sum(f.stat().st_size for f in meta_files) if meta_files else 0
+
+        # 读取快照信息
+        snapshots = con.execute(
+            f"SELECT snapshot_id, timestamp_ms, manifest_list "
+            f"FROM iceberg_snapshots('{self.iceberg_path}')"
+        ).fetchall()
+
+        return {
+            "data_files": len(data_files),
+            "data_bytes": size,
+            "meta_bytes": meta_size,
+            "total_bytes": size + meta_size,
+            "snapshots": [
+                {"id": str(s[0]), "ts": str(s[1])[:19], "rows": "*"}
+                for s in snapshots
+            ],
+        }
+
+    def list_iceberg_snapshots(self) -> list[dict]:
+        """列出所有 Iceberg 快照 (time travel 时间点)"""
+        path = Path(self.iceberg_path)
+        if not path.exists() or not any(path.iterdir()):
+            return []
+        con = self.con
+        con.execute("LOAD iceberg")
+        try:
+            snaps = con.execute(
+                f"SELECT snapshot_id, timestamp_ms "
+                f"FROM iceberg_snapshots('{self.iceberg_path}') "
+                f"ORDER BY timestamp_ms DESC"
+            ).fetchall()
+            return [
+                {"id": str(s[0]), "timestamp": str(s[1])[:19], "rows": "*"}
+                for s in snaps
+            ]
+        except Exception:
+            return []
+
+    def iceberg_query_at(self, snapshot_id: str, sql: str = "SELECT * FROM ods_raw_jobs LIMIT 10") -> list:
+        """对指定 Iceberg 快照执行 SQL 查询 (time travel)"""
+        con = self.con
+        con.execute("LOAD iceberg")
+        # 创建视图指向特定快照
+        con.execute(
+            f"CREATE OR REPLACE VIEW ods_raw_at AS "
+            f"SELECT * FROM iceberg_scan('{self.iceberg_path}', snapshot_from_id={snapshot_id})"
+        )
+        return con.execute(sql).fetchall()
 
     def verify(self) -> dict:
         from pulse.metrics import metrics

@@ -82,7 +82,18 @@ def task_export_parquet() -> None:
     p.close()
 
 
-@dag.task(name="quality_check", depends_on=["export_parquet"])
+@dag.task(name="export_iceberg", depends_on=["export_parquet"])
+def task_export_iceberg() -> None:
+    """导出 Iceberg 冷存储 (支持 time travel)"""
+    p = Pipeline()
+    p.init_schema()
+    r = p.export_to_iceberg()
+    snaps = len(r.get("snapshots", []))
+    logger.info(f"Iceberg: {r['data_files']} 文件, {r['total_bytes']/1024:.1f} KB, {snaps} 快照")
+    p.close()
+
+
+@dag.task(name="quality_check", depends_on=["export_iceberg"])
 def task_quality_check() -> None:
     """DAG 末尾执行质量 SLA 检查 + 告警"""
     from pulse.monitor import AlertLevel, Monitor, QualitySLA

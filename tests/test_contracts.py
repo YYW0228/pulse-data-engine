@@ -51,15 +51,16 @@ class TestDataContracts:
         )
         assert job.salary_min_k == 0
 
-    def test_max_less_than_min_rejected(self):
-        """max < min 应触发校验错误"""
-        with pytest.raises(ValueError, match="薪资区间异常"):
-            RawJobContract(
-                url="https://example.com/job5",
-                job_title="经理",
-                salary_min_k=50,
-                salary_max_k=30,
-            )
+    def test_max_less_than_min_swapped(self):
+        """max < min 应自动交换 (不再拒绝)"""
+        contract = RawJobContract(
+            url="https://example.com/job5",
+            job_title="经理",
+            salary_min_k=50,
+            salary_max_k=30,
+        )
+        assert contract.salary_min_k == 30, "min 应被交换为原 max"
+        assert contract.salary_max_k == 50, "max 应被交换为原 min"
 
     def test_empty_title_rejected(self):
         """空标题 min_length=1 应拒绝"""
