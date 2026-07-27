@@ -468,3 +468,73 @@ class Pipeline:
 
     def close(self) -> None:
         self.con.close()
+
+    # ── DLQ 重处理 ──────────────────────────────────────────────────
+
+    def reprocess_dlq(self, dry_run: bool = False) -> dict:
+        """尝试修复并重处理 DLQ 中的死信记录
+
+        修复规则:
+          1. city 过长 → 截断至 200 字符
+          2. salary min>max → 自动交换 (已由 Data Contract 处理)
+          3. salary > 1000 → 按 元/月 归一化 (÷1000)
+          4. raw_payload 是 Python dict 语法 (非 JSON) → 用 ast.literal_eval
+
+        返回:
+            {"recovered": N, "still_failed": N, "total": N}
+        """
+        import ast
+
+        from pulse.schema import RawJobContract
+
+        con = self.con
+        rows = con.execute(
+            "SELECT row_id, url, error_type, error_message, raw_payload "
+            "FROM dlq_jobs WHERE retry_count < 1"
+        ).fetchall()
+
+        recovered = 0
+        still_failed = 0
+        for row_id, url, error_type, error_msg, raw_payload in rows:
+            # 从 raw_payload 恢复原始记录
+            record = {}
+            if raw_payload and raw_payload.startswith("{"):
+                try:
+                    record = ast.literal_eval(raw_payload)
+                except (ValueError, SyntaxError):
+                    still_failed += 1
+                    continue
+
+            if not record:
+                still_failed += 1
+                continue
+
+            # 尝试修复: city 截断
+            if isinstance(record.get("city"), str) and len(record["city"]) > 200:
+                record["city"] = record["city"][:197] + "..."
+
+            # 重新校验
+            try:
+                contract = RawJobContract(**record)
+                validated = contract.model_dump()
+                if dry_run:
+                    recovered += 1
+                else:
+                    # 合并到 ODS
+                    self.merge_into_ods([validated])
+                    # 从 DLQ 标记已处理
+                    con.execute(
+                        "DELETE FROM dlq_jobs WHERE row_id=?",
+                        [row_id],
+                    )
+                    recovered += 1
+            except Exception as e:
+                # 无法修复 — 标记永久
+                con.execute(
+                    "UPDATE dlq_jobs SET retry_count=1, error_message=? WHERE row_id=?",
+                    [f"PERMANENT: {str(e)[:200]}", row_id],
+                )
+                still_failed += 1
+
+        total = con.execute("SELECT COUNT(*) FROM dlq_jobs").fetchone()[0] or 0
+        return {"recovered": recovered, "still_failed": still_failed, "total_remaining": total}

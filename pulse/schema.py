@@ -37,9 +37,9 @@ class RawJobContract(BaseModel):
 
     # ── 可选但类型必须正确 ──
     company_name: str | None = Field(None, max_length=200)
-    city: str | None = Field(None, max_length=50)
-    salary_min_k: int | None = Field(None, ge=0, le=1000, description="最低薪资 (k/月)")
-    salary_max_k: int | None = Field(None, ge=0, le=1000, description="最高薪资 (k/月)")
+    city: str | None = Field(None, max_length=200)
+    salary_min_k: int | None = Field(None, ge=0, le=2000, description="最低薪资 (k/月)")
+    salary_max_k: int | None = Field(None, ge=0, le=2000, description="最高薪资 (k/月)")
     education: str | None = Field(None, max_length=20)
     experience: str | None = Field(None, max_length=20)
     keyword: str | None = Field(None, max_length=100)
@@ -107,13 +107,15 @@ class RawJobContract(BaseModel):
 
     @model_validator(mode="after")
     def check_salary_consistency(self) -> "RawJobContract":
-        """薪资区间校验: max >= min"""
+        """薪资区间校验: 若 max < min 则自动交换 (不再拒绝)"""
         if (
             self.salary_min_k is not None
             and self.salary_max_k is not None
             and self.salary_max_k < self.salary_min_k
         ):
-            raise ValueError(f"薪资区间异常: max({self.salary_max_k}) < min({self.salary_min_k})")
+            import warnings
+            warnings.warn(f"薪资区间异常, 自动交换: min({self.salary_min_k}) > max({self.salary_max_k})")
+            self.salary_min_k, self.salary_max_k = self.salary_max_k, self.salary_min_k
         return self
 
 

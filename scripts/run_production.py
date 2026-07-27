@@ -296,7 +296,7 @@ def main():
     print(json.dumps(result, ensure_ascii=False, default=str))
 
     # ── Metrics 快照 (供跨进程 Prometheus 采集) ────────────────
-    from pulse.metrics import dump_snapshot, SNAPSHOT_PATH
+    from pulse.metrics import SNAPSHOT_PATH, dump_snapshot
     dump_snapshot()
     # 额外写入 report 数据 (alert_check 消费)
     try:
@@ -316,8 +316,8 @@ def main():
         }
         SNAPSHOT_PATH.parent.mkdir(parents=True, exist_ok=True)
         SNAPSHOT_PATH.write_text(_j.dumps(report_snapshot, ensure_ascii=False, default=str))
-    except Exception:
-        pass
+    except OSError:
+        pass  # 非关键 — 快照写入失败不影响管道结果
 
     # ── 退出码 ─────────────────────────────────────────────────
     if result["status"] in ("failed", "crashed"):
