@@ -128,3 +128,106 @@ $0 月运营              1075 岗位数据          158 KB Parquet 湖
 ---
 
 **pulse-data-engine** — 从爬虫到可视化，一条管道，月运营费 $0。
+
+---
+
+## 生产部署
+
+### 1. 配置 Secrets
+
+在 GitHub 仓库 `Settings → Secrets and variables → Actions` 设置：
+
+| Secret | 说明 | 获取方式 |
+|--------|------|---------|
+| `CF_ACCOUNT_ID` | Cloudflare 账户 ID | Dashboard → 右侧 "Account ID" |
+| `CLOUDFLARE_API_TOKEN` | R2 读写权限 Token | R2 → 管理 → 创建 API 令牌 |
+| `SLACK_WEBHOOK_URL` | Slack 通知 (可选) | Slack App → Incoming Webhooks |
+
+本地开发用 `.env` 文件：
+
+```bash
+cp .env.example .env
+# 编辑 .env 填入真实值
+```
+
+### 2. 定时调度
+
+Push 到 `main` 后自动激活 GitHub Actions cron（`daily-pipeline.yml`）：
+
+- **定时执行**: 每天 02:00, 08:00, 14:00, 20:00 UTC
+- **手动触发**: Actions → Daily Pipeline → Run workflow
+- **失败通知**: Slack webhook（如果配置了 `SLACK_WEBHOOK_URL`）
+- **Artifacts**: 每次运行结果保留 7 天（JSON report + 日志）
+
+### 3. 本地一键部署
+
+```bash
+make deploy-run        # 单次生产运行 (含 metrics + report)
+make production-report # 仅查看最新报告 (不运行管道)
+make up                # 启动全部服务:
+                       #   :9464 — Metrics  (Prometheus scrape)
+                       #   :8000  — WASM SQL (浏览器直查 Parquet)
+                       #   :8501  — Dashboard (Streamlit 数据对账)
+```
+
+### 4. 查看 Metrics
+
+Metrics 服务器运行在 `:9464`：
+
+| 端点 | 说明 |
+|------|------|
+| `GET /metrics` | Prometheus 格式 (scrape target) |
+| `GET /snapshot` | 最新运行快照 (JSON) |
+| `GET /health` | 服务健康 + 最近运行时间 |
+
+```bash
+# 直接查看
+curl http://localhost:9464/metrics | grep pulse_
+
+# 或配置 Prometheus scrape
+# scrape_configs:
+#   - job_name: 'pulse'
+#     static_configs:
+#       - targets: ['localhost:9464']
+```
+
+### 5. Grafana Dashboard
+
+导入 `grafana/dashboard.json` 到 Grafana，包含 6 个面板：
+
+- DAG 任务耗时 (P95)
+- 任务成功率
+- DLQ 行数 + 按错误类型
+- ODS/DWD 数据量
+- DAG 运行耗时趋势
+
+### 6. Alerting
+
+内置 Python 告警扫描脚本：
+
+```bash
+# 手动扫描最新 snapshot
+uv run python -m scripts.alert_check
+
+# 自定义阈值
+uv run python -m scripts.alert_check \
+  --dlq-spike 100 \
+  --p95-duration 30.0 \
+  --min-success-rate 0.85
+```
+
+触发条件自动发 Slack。进阶用户可配置 Prometheus Alertmanager。
+
+### 7. 常见问题
+
+**DLQ 持续增长** — 检查 `data/logs/pulse.jsonl` 中 `SCHEMA_VIOLATION` 的原始记录，调整 `pulse/schema.py` 中 Data Contract 的容错规则。
+
+**R2 同步失败** — 确认 `CF_ACCOUNT_ID` 和 `CLOUDFLARE_API_TOKEN` 已设置且对应 R2 bucket 名称匹配。
+
+**WASM 查询为空** — 先运行一次管道生成 Parquet 数据，确认 `data/ods_parquet/` 非空。
+
+**Metrics 全部为 0** — Metrics 定义在进程启动时注册，实际值在管道运行后填充。确保先跑 `make deploy-run` 再查 `/metrics`。
+
+---
+
+> **架构是权衡的艺术。Pulse Data Engine 为 <100GB、单机、零成本场景做了最优权衡。**
