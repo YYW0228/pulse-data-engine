@@ -71,6 +71,37 @@ def task_export_parquet():
     p.close()
 
 
+@dag.task(name="quality_check", depends_on=["export_parquet"])
+def task_quality_check():
+    """DAG 末尾执行质量 SLA 检查 + 告警"""
+    from pulse.monitor import Monitor, QualitySLA, AlertLevel
+    sla = QualitySLA("data/jobs.duckdb")
+    report = sla.full_report()
+    logger.info(f"质量报告: 完整={report['completeness']['status']} "
+                f"有效={report['validity']['status']} "
+                f"新鲜={report['freshness']['status']} "
+                f"一致={report['consistency']['status']}")
+
+    # 任意一项 CRITICAL → 告警
+    monitor = Monitor()
+    issues = []
+    for k, v in report.items():
+        if isinstance(v, dict) and v.get("status") == "CRITICAL":
+            if k != "timestamp":
+                issues.append(f"{k}: {v}")
+    if issues:
+        monitor.alert(AlertLevel.CRITICAL, "Quality SLA Failed",
+                      "\n".join(str(i) for i in issues))
+        raise Exception(f"质量检查失败: {len(issues)} 项 CRITICAL")
+
+    # DLQ 检查
+    import duckdb
+    con = duckdb.connect("data/jobs.duckdb")
+    dlq = con.execute("SELECT COUNT(*) FROM dlq_jobs").fetchone()[0]
+    con.close()
+    monitor.check_dlq_spike(dlq)
+
+
 def run_once():
     logger.info("=" * 50)
     logger.info("Pulse Data Engine — DAG 启动")
