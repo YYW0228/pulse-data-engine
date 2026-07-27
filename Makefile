@@ -52,6 +52,13 @@ up:
 	@echo "  🦆 WASM SQL:  http://localhost:8000/wasm"
 	@echo "  🚀 Dashboard: http://localhost:8501"
 
+# ── Dagster ───────────────────────────────────────────────────────────
+dagster-ui:
+	$(UV) dagster dev -f pulse/assets.py
+
+dagster-run:
+	$(UV) python -c "from dagster import DagsterInstance, materialize; from pulse.assets import *; materialize([ods_raw_jobs, dwd_cleaned_jobs, dws_skill_agg, dws_city_agg, parquet_export, iceberg_export, quality_report, backup], resources={}, instance=DagsterInstance.ephemeral())"
+
 # ── 清理 ────────────────────────────────────────────────────────────
 clean:
 	rm -rf data/backups/*.gz
