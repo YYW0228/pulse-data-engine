@@ -10,6 +10,9 @@ from pulse.dag import DAG
 from pulse.pipeline import Pipeline
 from pulse.logging_config import setup_logging
 
+# Cloudflare 配置
+import os; os.environ.setdefault("CF_ACCOUNT_ID", "6025acdb6aa6561281513bddf6c2b87d")
+
 # JSON 结构化日志 (控制台 + data/logs/pulse.jsonl)
 log_file = setup_logging()
 logger = logging.getLogger("pulse.runner")
@@ -102,6 +105,18 @@ def task_quality_check():
     dlq = con.execute("SELECT COUNT(*) FROM dlq_jobs").fetchone()[0]
     con.close()
     monitor.check_dlq_spike(dlq)
+
+
+@dag.task(name="backup", depends_on=["quality_check"])
+def task_backup():
+    """DAG 末尾执行备份 (本地 gzip + R2)"""
+    from pulse.backup import BackupManager
+    bm = BackupManager(
+        r2_bucket="pulse-data-engine-parquet",
+    )
+    bm.backup_local()
+    bm.backup_remote()
+    bm.cleanup(keep_last=7)
 
 
 def run_once():
