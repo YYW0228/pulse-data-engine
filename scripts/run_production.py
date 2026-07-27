@@ -296,9 +296,28 @@ def main():
     print(json.dumps(result, ensure_ascii=False, default=str))
 
     # ── Metrics 快照 (供跨进程 Prometheus 采集) ────────────────
-    from pulse.metrics import dump_snapshot
-
+    from pulse.metrics import dump_snapshot, SNAPSHOT_PATH
     dump_snapshot()
+    # 额外写入 report 数据 (alert_check 消费)
+    try:
+        import json as _j
+        report_snapshot = {
+            "timestamp": result.get("report", {}).get("ods_latest", "") or datetime.now(timezone.utc).isoformat(),
+            "data_rows": {
+                "ods_latest": result.get("report", {}).get("ods_latest", 0),
+                "dwd": result.get("report", {}).get("dwd", 0),
+                "dlq": result.get("report", {}).get("dlq", 0),
+            },
+            "dlq": result.get("dlq", {}).get("by_type", {}),
+            "dag_tasks": {},
+            "summary": result.get("summary", {}),
+            "duration_s": result.get("duration_s", 0),
+            "status": result.get("status", "unknown"),
+        }
+        SNAPSHOT_PATH.parent.mkdir(parents=True, exist_ok=True)
+        SNAPSHOT_PATH.write_text(_j.dumps(report_snapshot, ensure_ascii=False, default=str))
+    except Exception:
+        pass
 
     # ── 退出码 ─────────────────────────────────────────────────
     if result["status"] in ("failed", "crashed"):
