@@ -8,8 +8,10 @@ pulse/runner.py — DAG 任务定义 + 7x24 运行入口
 import logging, time, sys
 from pulse.dag import DAG
 from pulse.pipeline import Pipeline
+from pulse.logging_config import setup_logging
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s %(message)s", datefmt="%H:%M:%S")
+# JSON 结构化日志 (控制台 + data/logs/pulse.jsonl)
+log_file = setup_logging()
 logger = logging.getLogger("pulse.runner")
 
 dag = DAG(name="pulse_etl")
