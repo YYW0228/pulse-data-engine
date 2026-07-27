@@ -1,15 +1,13 @@
 """
-pulse/pipeline.py — 三层数仓管道 v3 (Hot/Cold + DLQ)
+pulse/pipeline.py — 三层数仓管道 v4 (Data Contracts + DLQ + Parquet)
 
 架构:
-  NetworkFetcher → DLQ 容错 → ODS (SCD Type 2, DuckDB)
-                                → DWD (清洗+分类)
-                                → DWS (聚合)
-                                → Parquet 湖 (Cold Ledger)
+  Input → validate_and_route() → [pass] → merge_into_ods (SCD Type 2)
+                                  [fail] → write_dlq(SCHEMA_VIOLATION)
 """
-import re, duckdb, hashlib, warnings, logging
+import re, duckdb, hashlib, warnings, logging, uuid
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Optional
 
 logger = logging.getLogger("pulse.pipeline")
@@ -23,7 +21,6 @@ def build_safe_pattern(kw: str) -> str:
 
 
 class Pipeline:
-    """三层数仓管道 v3 — SCD Type 2 + DLQ + Parquet"""
 
     CATEGORIES = [
         ("AI/ML算法", ["ai","ml","llm","大模型","深度学习","自然语言","计算机视觉",
@@ -47,8 +44,8 @@ class Pipeline:
         for kw in kws:
             try:
                 patterns.append(re.compile(build_safe_pattern(kw), re.IGNORECASE))
-            except re.error as e:
-                warnings.warn(f"Regex failed for '{kw}' in {name}: {e}")
+            except re.error:
+                warnings.warn(f"Regex failed for '{kw}' in {name}")
         _COMPILED.append((name, patterns))
 
     @classmethod
@@ -77,15 +74,11 @@ class Pipeline:
         con = self.con
         con.execute("CREATE SEQUENCE IF NOT EXISTS seq_row_id START 1")
 
-        # ODS — SCD Type 2
         con.execute("""
             CREATE TABLE IF NOT EXISTS ods_raw_jobs (
-                row_id BIGINT PRIMARY KEY,
-                entity_id VARCHAR NOT NULL,
-                content_hash VARCHAR NOT NULL,
-                is_latest BOOLEAN DEFAULT TRUE,
-                valid_from TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                valid_to TIMESTAMP,
+                row_id BIGINT PRIMARY KEY, entity_id VARCHAR NOT NULL,
+                content_hash VARCHAR NOT NULL, is_latest BOOLEAN DEFAULT TRUE,
+                valid_from TIMESTAMP DEFAULT CURRENT_TIMESTAMP, valid_to TIMESTAMP,
                 job_title VARCHAR, company_name VARCHAR, city VARCHAR,
                 salary_min_k INTEGER, salary_max_k INTEGER,
                 education VARCHAR, experience VARCHAR,
@@ -96,32 +89,23 @@ class Pipeline:
         con.execute("CREATE INDEX IF NOT EXISTS idx_entity ON ods_raw_jobs(entity_id)")
         con.execute("CREATE INDEX IF NOT EXISTS idx_latest ON ods_raw_jobs(is_latest)")
 
-        # DLQ — 死信队列
         con.execute("""
             CREATE TABLE IF NOT EXISTS dlq_jobs (
-                row_id BIGINT PRIMARY KEY,
-                url VARCHAR,
-                error_type VARCHAR,
-                error_message VARCHAR,
-                http_status INTEGER,
-                raw_payload VARCHAR,
+                row_id BIGINT PRIMARY KEY, url VARCHAR,
+                error_type VARCHAR, error_message VARCHAR,
+                http_status INTEGER, raw_payload VARCHAR,
                 failed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 retry_count INTEGER DEFAULT 0
             )
         """)
-        con.execute("CREATE SEQUENCE IF NOT EXISTS seq_dlq_id START 1")
-
-        # DWD
         con.execute("""
             CREATE TABLE IF NOT EXISTS dwd_cleaned_jobs (
-                entity_id VARCHAR PRIMARY KEY,
-                title VARCHAR, company VARCHAR, city VARCHAR,
-                salary_min INTEGER, salary_max INTEGER, salary_mid DOUBLE,
-                category VARCHAR, crawled_at TIMESTAMP, valid_from TIMESTAMP
+                entity_id VARCHAR PRIMARY KEY, title VARCHAR,
+                company VARCHAR, city VARCHAR, salary_min INTEGER,
+                salary_max INTEGER, salary_mid DOUBLE, category VARCHAR,
+                crawled_at TIMESTAMP, valid_from TIMESTAMP
             )
         """)
-
-        # DWS
         con.execute("""
             CREATE TABLE IF NOT EXISTS dws_skill_agg (
                 category VARCHAR PRIMARY KEY, demand_count BIGINT,
@@ -137,62 +121,53 @@ class Pipeline:
 
     def write_dlq(self, url: str, error_type: str, error_message: str,
                    http_status: int | None = None, raw_payload: str = ""):
-        """写入死信队列 (UUID 主键, 支持并发写入)"""
-        import uuid
-        row_id = uuid.uuid4().int >> 64  # 64-bit unique ID, 不依赖序列
+        row_id = abs(hash(url + error_type + str(datetime.now()))) % (2**63)
         self.con.execute("""
-            INSERT OR IGNORE INTO dlq_jobs (row_id, url, error_type, error_message, http_status, raw_payload)
+            INSERT OR IGNORE INTO dlq_jobs
+                (row_id, url, error_type, error_message, http_status, raw_payload)
             VALUES (?, ?, ?, ?, ?, ?)
         """, [row_id, url, error_type, error_message[:1000], http_status, raw_payload[:5000]])
 
+    def validate_and_route(self, raw_records: list[dict]) -> dict:
+        from pulse.schema import RawJobContract
+        passed = []
+        violations = []
+        for record in raw_records:
+            try:
+                contract = RawJobContract(**record)
+                passed.append(contract.model_dump())
+            except Exception as e:
+                url = record.get("url", "unknown")
+                violations.append({"url": url, "error": str(e), "raw_record": record})
+                self.write_dlq(url, "SCHEMA_VIOLATION", str(e)[:500], raw_payload=str(record)[:3000])
+        return {"passed": passed, "violations": violations,
+                "summary": {"total": len(raw_records), "passed": len(passed), "failed": len(violations)}}
+
     def merge_into_ods(self, jobs: list[dict]) -> dict:
-        """将解析成功的 job dicts 通过 SCD Type 2 合并到 ODS"""
         con = self.con
         stats = {"new": 0, "updated": 0, "unchanged": 0}
-
         for job in jobs:
             url = job.get("url", "")
             entity_id = hashlib.md5(url.encode()).hexdigest()
             new_hash = self.content_hash(
-                str(job.get("job_title","")),
+                str(job.get("job_title", "")),
                 job.get("salary_min_k"), job.get("salary_max_k"),
-                str(job.get("city",""))
-            )
-
+                str(job.get("city", "")))
             existing = con.execute(
                 "SELECT content_hash FROM ods_raw_jobs WHERE entity_id=? AND is_latest=TRUE",
-                [entity_id]
-            ).fetchone()
-
+                [entity_id]).fetchone()
             if existing is None:
                 row_id = con.execute("SELECT nextval('seq_row_id')").fetchone()[0]
-                con.execute("""
-                    INSERT INTO ods_raw_jobs VALUES (?,?,?,TRUE,CURRENT_TIMESTAMP,NULL,
-                        ?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
-                """, [row_id, entity_id, new_hash,
-                      job.get("job_title"), job.get("company_name"), job.get("city"),
-                      job.get("salary_min_k"), job.get("salary_max_k"),
-                      job.get("education"), job.get("experience"),
-                      url, job.get("keyword"), job.get("source"), job.get("domain")])
+                con.execute("INSERT INTO ods_raw_jobs (row_id, entity_id, content_hash, is_latest, job_title, company_name, city, salary_min_k, salary_max_k, education, experience, url, keyword, source, domain, crawled_at) VALUES (?,?,?,TRUE,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)", [row_id, entity_id, new_hash, job.get("job_title"), job.get("company_name"), job.get("city"), job.get("salary_min_k"), job.get("salary_max_k"), job.get("education"), job.get("experience"), url, job.get("keyword"), job.get("source"), job.get("domain")])
                 stats["new"] += 1
-
             elif existing[0] == new_hash:
                 con.execute("UPDATE ods_raw_jobs SET crawled_at=CURRENT_TIMESTAMP WHERE entity_id=? AND is_latest=TRUE", [entity_id])
                 stats["unchanged"] += 1
-
             else:
                 con.execute("UPDATE ods_raw_jobs SET is_latest=FALSE, valid_to=CURRENT_TIMESTAMP WHERE entity_id=? AND is_latest=TRUE", [entity_id])
                 row_id = con.execute("SELECT nextval('seq_row_id')").fetchone()[0]
-                con.execute("""
-                    INSERT INTO ods_raw_jobs VALUES (?,?,?,TRUE,CURRENT_TIMESTAMP,NULL,
-                        ?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
-                """, [row_id, entity_id, new_hash,
-                      job.get("job_title"), job.get("company_name"), job.get("city"),
-                      job.get("salary_min_k"), job.get("salary_max_k"),
-                      job.get("education"), job.get("experience"),
-                      url, job.get("keyword"), job.get("source"), job.get("domain")])
+                con.execute("INSERT INTO ods_raw_jobs (row_id, entity_id, content_hash, is_latest, valid_from, job_title, company_name, city, salary_min_k, salary_max_k, education, experience, url, keyword, source, domain, crawled_at) VALUES (?,?,?,TRUE,CURRENT_TIMESTAMP,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)", [row_id, entity_id, new_hash, job.get("job_title"), job.get("company_name"), job.get("city"), job.get("salary_min_k"), job.get("salary_max_k"), job.get("education"), job.get("experience"), url, job.get("keyword"), job.get("source"), job.get("domain")])
                 stats["updated"] += 1
-
         return stats
 
     def refresh_dwd(self):
@@ -214,45 +189,24 @@ class Pipeline:
     def refresh_dws(self):
         con = self.con
         con.execute("DELETE FROM dws_skill_agg")
-        con.execute("""
-            INSERT INTO dws_skill_agg
-            SELECT category,COUNT(*),ROUND(AVG(salary_mid)),
-                ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY salary_mid)),
-                ROUND(PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY salary_mid)),
-                ROUND(PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY salary_mid)),
-                CURRENT_TIMESTAMP
-            FROM dwd_cleaned_jobs WHERE category!='其他' AND salary_mid IS NOT NULL
-            GROUP BY category
-        """)
+        con.execute("""INSERT INTO dws_skill_agg SELECT category,COUNT(*),ROUND(AVG(salary_mid)),ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY salary_mid)),ROUND(PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY salary_mid)),ROUND(PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY salary_mid)),CURRENT_TIMESTAMP FROM dwd_cleaned_jobs WHERE category!='其他' AND salary_mid IS NOT NULL GROUP BY category""")
         con.execute("DELETE FROM dws_city_agg")
-        con.execute("""
-            INSERT INTO dws_city_agg
-            SELECT city,COUNT(*),ROUND(AVG(salary_mid))
-            FROM dwd_cleaned_jobs WHERE city NOT IN ('','SEM','抛光工') AND salary_mid IS NOT NULL
-            GROUP BY city
-        """)
+        con.execute("""INSERT INTO dws_city_agg SELECT city,COUNT(*),ROUND(AVG(salary_mid)) FROM dwd_cleaned_jobs WHERE city NOT IN ('','SEM','抛光工') AND salary_mid IS NOT NULL GROUP BY city""")
 
     def export_to_parquet(self):
         con = self.con
-        con.execute(f"""
-            COPY (SELECT *, EXTRACT(YEAR FROM crawled_at) AS year,
-                  EXTRACT(MONTH FROM crawled_at) AS month,
-                  CAST(crawled_at AS DATE) AS date
-            FROM ods_raw_jobs WHERE is_latest=TRUE)
-            TO '{self.parquet_path}'
-            (FORMAT PARQUET, PARTITION_BY (year, month, date), OVERWRITE_OR_IGNORE 1)
-        """)
+        con.execute(f"COPY (SELECT *, EXTRACT(YEAR FROM crawled_at) AS year, EXTRACT(MONTH FROM crawled_at) AS month, CAST(crawled_at AS DATE) AS date FROM ods_raw_jobs WHERE is_latest=TRUE) TO '{self.parquet_path}' (FORMAT PARQUET, PARTITION_BY (year, month, date), OVERWRITE_OR_IGNORE 1)")
         files = list(Path(self.parquet_path).rglob("*.parquet"))
         return {"files": len(files), "bytes": sum(f.stat().st_size for f in files)}
 
     def verify(self) -> dict:
         con = self.con
-        ods = con.execute("SELECT COUNT(*) FROM ods_raw_jobs").fetchone()[0]
-        latest = con.execute("SELECT COUNT(*) FROM ods_raw_jobs WHERE is_latest=TRUE").fetchone()[0]
-        dwd = con.execute("SELECT COUNT(*) FROM dwd_cleaned_jobs").fetchone()[0]
-        dws_n = con.execute("SELECT COALESCE(SUM(demand_count),0) FROM dws_skill_agg").fetchone()[0]
-        excluded = con.execute("SELECT COUNT(*) FROM dwd_cleaned_jobs WHERE category='其他' OR salary_mid IS NULL").fetchone()[0]
-        dlq_n = con.execute("SELECT COUNT(*) FROM dlq_jobs").fetchone()[0]
+        ods = con.execute("SELECT COUNT(*) FROM ods_raw_jobs").fetchone()[0] or 0
+        latest = con.execute("SELECT COUNT(*) FROM ods_raw_jobs WHERE is_latest=TRUE").fetchone()[0] or 0
+        dwd = con.execute("SELECT COUNT(*) FROM dwd_cleaned_jobs").fetchone()[0] or 0
+        dws_n = con.execute("SELECT COALESCE(SUM(demand_count),0) FROM dws_skill_agg").fetchone()[0] or 0
+        excluded = con.execute("SELECT COUNT(*) FROM dwd_cleaned_jobs WHERE category='其他' OR salary_mid IS NULL").fetchone()[0] or 0
+        dlq_n = con.execute("SELECT COUNT(*) FROM dlq_jobs").fetchone()[0] or 0
         return {"ods_total": ods, "ods_latest": latest, "dwd": dwd,
                 "dws": dws_n, "excluded": excluded, "dws_plus_excluded": dws_n + excluded,
                 "dlq": dlq_n,
@@ -260,9 +214,6 @@ class Pipeline:
 
     def run_full(self):
         self.init_schema()
-        # 从本地 raw_jobs (初始加载)
-        from pulse.fetcher import FetchResult
-        stats = {"ods": None, "dwd": 0, "dws": None}
         return self.verify()
 
     def close(self):
