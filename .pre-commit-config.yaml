@@ -8,5 +8,5 @@ repos:
     rev: v1.15.0
     hooks:
       - id: mypy
-        args: [--ignore-missing-imports, --follow-imports=silent]
-        additional_dependencies: [pydantic]
+        args: [--strict, --exclude, "tests/|scripts/|serve\\.py"]
+        additional_dependencies: [pydantic, types-requests]

@@ -1,0 +1,47 @@
+{
+  "title": "Pulse Data Engine",
+  "tags": ["pulse", "duckdb", "data-engine"],
+  "panels": [
+    {
+      "title": "DAG 任务耗时 (P95)",
+      "type": "graph",
+      "targets": [{"expr": "histogram_quantile(0.95, sum(rate(pulse_dag_task_duration_seconds_bucket[5m])) by (le, task_name))", "legendFormat": "{{task_name}}"}],
+      "yaxes": [{"format": "s", "label": "Duration"}],
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}
+    },
+    {
+      "title": "任务成功率",
+      "type": "stat",
+      "targets": [{"expr": "sum(pulse_dag_task_total{status=\"success\"}) / sum(pulse_dag_task_total) * 100", "legendFormat": "Success Rate"}],
+      "gridPos": {"h": 4, "w": 4, "x": 12, "y": 0}
+    },
+    {
+      "title": "DLQ 行数",
+      "type": "stat",
+      "targets": [{"expr": "pulse_dlq_rows", "legendFormat": "DLQ"}],
+      "gridPos": {"h": 4, "w": 4, "x": 16, "y": 0}
+    },
+    {
+      "title": "ODS/DWD 数据量",
+      "type": "graph",
+      "targets": [
+        {"expr": "pulse_ods_rows{version=\"latest\"}", "legendFormat": "ODS latest"},
+        {"expr": "pulse_dwd_rows", "legendFormat": "DWD"}
+      ],
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8}
+    },
+    {
+      "title": "DLQ 按错误类型",
+      "type": "pie",
+      "targets": [{"expr": "pulse_dlq_by_type_total", "legendFormat": "{{error_type}}"}],
+      "gridPos": {"h": 8, "w": 8, "x": 12, "y": 8}
+    },
+    {
+      "title": "DAG 运行耗时",
+      "type": "graph",
+      "targets": [{"expr": "pulse_dag_run_duration_seconds_sum / pulse_dag_run_duration_seconds_count", "legendFormat": "Avg DAG duration"}],
+      "gridPos": {"h": 6, "w": 12, "x": 0, "y": 16}
+    }
+  ],
+  "schemaVersion": 38
+}

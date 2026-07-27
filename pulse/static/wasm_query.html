@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pulse Data Engine — SQL 查询</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --border: #30363d;
+    --text: #c9d1d9;
+    --text-dim: #8b949e;
+    --accent: #58a6ff;
+    --success: #3fb950;
+    --warn: #d29922;
+    --err: #f85149;
+    --font: 'SF Mono', 'JetBrains Mono', 'Cascadia Code', monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    min-height: 100vh;
+  }
+  header {
+    padding: 16px 24px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 12px;
+    background: var(--surface);
+  }
+  header h1 { font-size: 18px; font-weight: 600; }
+  header h1 span { color: var(--text-dim); font-weight: 400; }
+  header .badge {
+    font-size: 11px; padding: 2px 8px; border-radius: 12px;
+    background: #1f6feb33; color: var(--accent);
+  }
+  .container { display: flex; gap: 0; height: calc(100vh - 58px); }
+
+  /* ── Left: SQL editor ── */
+  .editor-panel {
+    flex: 1; display: flex; flex-direction: column;
+    border-right: 1px solid var(--border);
+    min-width: 0;
+  }
+  .editor-panel .toolbar {
+    padding: 8px 16px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 8px;
+    flex-wrap: wrap;
+  }
+  .editor-panel .toolbar label {
+    font-size: 12px; color: var(--text-dim);
+  }
+  .editor-panel .toolbar select {
+    background: var(--bg); color: var(--text); border: 1px solid var(--border);
+    padding: 4px 8px; border-radius: 4px; font-size: 12px;
+  }
+  .btn {
+    padding: 6px 16px; border-radius: 6px; border: none;
+    font-size: 13px; font-weight: 500; cursor: pointer;
+    transition: opacity .15s;
+  }
+  .btn:hover { opacity: .85; }
+  .btn-primary { background: #238636; color: #fff; }
+  .btn-secondary { background: #21262d; color: var(--text); border: 1px solid var(--border); }
+  .btn-danger { background: #da3633; color: #fff; }
+  .btn:disabled { opacity: .4; cursor: not-allowed; }
+
+  textarea#sql {
+    flex: 1; width: 100%; resize: none; border: none; outline: none;
+    background: var(--bg); color: var(--text);
+    font-family: var(--font); font-size: 14px; line-height: 1.6;
+    padding: 16px; tab-size: 2;
+  }
+  textarea#sql::placeholder { color: var(--text-dim); }
+
+  /* ── Right: Results ── */
+  .result-panel {
+    flex: 1; display: flex; flex-direction: column;
+    min-width: 0; overflow: hidden;
+  }
+  .result-panel .tabs {
+    display: flex; border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .result-panel .tabs button {
+    padding: 10px 20px; background: transparent; border: none;
+    color: var(--text-dim); font-size: 13px; cursor: pointer;
+    border-bottom: 2px solid transparent;
+  }
+  .result-panel .tabs button.active {
+    color: var(--accent); border-bottom-color: var(--accent);
+  }
+  .result-panel .tabs button .count {
+    font-size: 11px; margin-left: 6px;
+    background: #30363d; padding: 0 6px; border-radius: 8px;
+  }
+  .tab-content { flex: 1; overflow: auto; display: none; padding: 12px; }
+  .tab-content.active { display: block; }
+
+  table {
+    width: 100%; border-collapse: collapse;
+    font-family: var(--font); font-size: 12px;
+  }
+  th {
+    text-align: left; padding: 8px 10px;
+    background: var(--surface); color: var(--text-dim);
+    border-bottom: 2px solid var(--border);
+    position: sticky; top: 0; white-space: nowrap;
+  }
+  td {
+    padding: 6px 10px; border-bottom: 1px solid var(--border);
+    white-space: nowrap; max-width: 300px; overflow: hidden; text-overflow: ellipsis;
+  }
+  tr:hover td { background: #161b22; }
+
+  .msg-info { color: var(--accent); font-size: 13px; padding: 8px 0; }
+  .msg-success { color: var(--success); font-size: 13px; padding: 8px 0; }
+  .msg-error {
+    color: var(--err); font-size: 13px; padding: 8px 12px;
+    background: #3b141b; border: 1px solid #5c1c24; border-radius: 6px;
+    white-space: pre-wrap; font-family: var(--font);
+  }
+  .empty-state {
+    color: var(--text-dim); text-align: center;
+    padding: 60px 20px; font-size: 14px;
+  }
+  .empty-state .icon { font-size: 48px; margin-bottom: 16px; }
+  .status-bar {
+    padding: 6px 16px; border-top: 1px solid var(--border);
+    font-size: 12px; color: var(--text-dim);
+    display: flex; justify-content: space-between;
+  }
+  .spinner {
+    display: inline-block; width: 14px; height: 14px;
+    border: 2px solid var(--border); border-top-color: var(--accent);
+    border-radius: 50%; animation: spin .6s linear infinite;
+    vertical-align: middle; margin-right: 6px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .schema-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 8px;
+  }
+  .schema-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 6px; padding: 12px;
+  }
+  .schema-card h3 { font-size: 13px; margin-bottom: 8px; color: var(--accent); }
+  .schema-card .field {
+    font-size: 12px; color: var(--text-dim); padding: 2px 0;
+  }
+  .schema-card .field code {
+    color: #f0883e; font-family: var(--font);
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🚀 Pulse Data Engine <span>— DuckDB WASM SQL 查询</span></h1>
+  <span class="badge">零成本 · 浏览器内</span>
+</header>
+
+<div class="container">
+
+<!-- ─── Left: SQL Editor ─── -->
+<div class="editor-panel">
+  <div class="toolbar">
+    <button class="btn btn-primary" id="btnRun" onclick="runQuery()">▶ 运行</button>
+    <button class="btn btn-secondary" onclick="clearResults()">清除</button>
+    <button class="btn btn-danger" onclick="resetDB()">重置 DB</button>
+    <label>数据源:</label>
+    <select id="dataSource" onchange="onSourceChange()">
+      <option value="local">本地 (localhost)</option>
+      <option value="remote">Cloudflare R2</option>
+    </select>
+  </div>
+  <textarea id="sql" placeholder="在此输入 SQL...&#10;&#10;示例:&#10;  SELECT category, demand_count, avg_salary FROM dws_skill_agg&#10;  ORDER BY demand_count DESC&#10;  LIMIT 10&#10;&#10;  SELECT city, job_count, avg_salary FROM dws_city_agg&#10;  ORDER BY job_count DESC&#10;  LIMIT 10&#10;&#10;  SELECT * FROM dwd_cleaned_jobs&#10;  LIMIT 20">SELECT category, demand_count, avg_salary
+FROM dws_skill_agg
+ORDER BY demand_count DESC
+LIMIT 10</textarea>
+</div>
+
+<!-- ─── Right: Results ─── -->
+<div class="result-panel">
+  <div class="tabs">
+    <button class="active" data-tab="results" onclick="switchTab('results')">
+      📊 结果 <span class="count" id="resultCount">0</span>
+    </button>
+    <button data-tab="schema" onclick="switchTab('schema')">
+      📋 表结构
+    </button>
+    <button data-tab="meta" onclick="switchTab('meta')">
+      ℹ️ 数据概况
+    </button>
+    <button data-tab="log" onclick="switchTab('log')" id="logTab">
+      📝 日志
+    </button>
+  </div>
+
+  <div id="tab-results" class="tab-content active">
+    <div id="resultsArea" class="empty-state">
+      <div class="icon">▶</div>
+      <div>点击「运行」执行 SQL 查询</div>
+    </div>
+  </div>
+  <div id="tab-schema" class="tab-content">
+    <div id="schemaArea" class="empty-state">
+      <div class="icon">📋</div>
+      <div>运行查询后自动显示表结构</div>
+    </div>
+  </div>
+  <div id="tab-meta" class="tab-content">
+    <div id="metaArea" class="empty-state">
+      <div class="icon">ℹ️</div>
+      <div>运行查询后显示数据概况</div>
+    </div>
+  </div>
+  <div id="tab-log" class="tab-content">
+    <pre id="logArea" style="font-family:var(--font);font-size:12px;line-height:1.5;color:var(--text-dim);white-space:pre-wrap"></pre>
+  </div>
+
+  <div class="status-bar">
+    <span id="statusText">就绪</span>
+    <span id="rowInfo"></span>
+  </div>
+</div>
+</div>
+
+<script type="module">
+// ─── DuckDB WASM — CDN 加载 ───────────────────────────────────────
+import * as duckdb from 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.28/+esm';
+import duckdb_wasm from 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.28/dist/duckdb-mvp.wasm?url';
+
+// ─── Logger (UI console) ───────────────────────────────────────────
+const MAX_LOG = 500;
+const logEntries = [];
+function log(msg, type = 'info') {
+  const ts = new Date().toLocaleTimeString();
+  logEntries.push({ ts, msg, type });
+  if (logEntries.length > MAX_LOG) logEntries.shift();
+  const el = document.getElementById('logArea');
+  el.textContent = logEntries.map(e => `[${e.ts}] ${e.msg}`).join('\n');
+  el.scrollTop = el.scrollHeight;
+}
+
+// ─── DuckDB instance ───────────────────────────────────────────────
+let db = null;
+let conn = null;
+let tablesLoaded = false;
+
+async function initDB() {
+  if (db) return;
+  log('初始化 DuckDB WASM...');
+  setStatus('⏳ 加载 DuckDB WASM...');
+
+  try {
+    const bundle = await duckdb.selectBundle({
+      mvp: { mainModule: duckdb_wasm },
+    });
+    const worker = new Worker(bundle.mainWorker);
+    db = new duckdb.AsyncDuckDB(worker, bundle);
+    await db.instantiate(bundle.mainModule);
+    conn = await db.connect();
+    log('✅ DuckDB WASM 初始化完成', 'success');
+    setStatus('就绪');
+  } catch (e) {
+    log(`❌ DuckDB 初始化失败: ${e.message}`, 'error');
+    setStatus(`错误: ${e.message}`);
+    throw e;
+  }
+}
+
+function setStatus(text) {
+  document.getElementById('statusText').textContent = text;
+}
+
+// ─── Load Parquet into DuckDB ──────────────────────────────────────
+function getBaseURL() {
+  const mode = document.getElementById('dataSource').value;
+  if (mode === 'remote') {
+    // 根据 Server URL 动态推断 Worker 地址
+    return ''; // 需要设定
+  }
+  return window.location.origin;
+}
+
+async function loadData(force = false) {
+  if (tablesLoaded && !force) return;
+  await initDB();
+  setStatus('⏳ 加载 Parquet 数据...');
+  log('加载 Parquet 文件到 DuckDB...');
+
+  try {
+    const base = getBaseURL();
+
+    // 获取 manifest
+    let manifestUrl = `${base}/manifest.json`;
+    let manifest;
+    try {
+      const resp = await fetch(manifestUrl);
+      manifest = await resp.json();
+    } catch (e) {
+      log(`Manifest 不可用: ${e.message}，尝试直接加载`, 'warn');
+      manifest = { files: [] };
+    }
+
+    // 收集所有 Parquet URL
+    const parquetUrls = [];
+    if (manifest.files && manifest.files.length > 0) {
+      for (const f of manifest.files) {
+        parquetUrls.push(`${base}/${f.key}`);
+      }
+    } else {
+      // Fallback: 尝试默认模式
+      const baseDir = `${base}/parquet`;
+      parquetUrls.push(`${baseDir}/**/*.parquet`);
+    }
+
+    if (parquetUrls.length === 0) {
+      log('⚠️ 未找到 Parquet 文件', 'warn');
+      setStatus('无数据');
+      return;
+    }
+
+    // 创建 DWS 视图（从 Parquet 加载聚合数据）
+    // DuckDB WASM 支持 read_parquet 远程 URL
+    const urls = parquetUrls.map(u => `'${u}'`).join(', ');
+
+    // 创建表: ods_raw_jobs (从 Parquet 加载)
+    try {
+      await conn.query(`CREATE VIEW ods_raw AS SELECT * FROM read_parquet([${urls}])`);
+      log(`✅ 加载 ${manifest.files?.length || '?'} 个 Parquet 文件`, 'success');
+      tablesLoaded = true;
+
+      // 创建 DWD/DWS 视图（在 WASM 端聚合以节省内存）
+      await conn.query(`
+        CREATE VIEW dwd_view AS
+        SELECT entity_id, job_title AS title, company_name AS company,
+               city, salary_min_k AS salary_min, salary_max_k AS salary_max,
+               CASE WHEN salary_min_k IS NOT NULL AND salary_max_k IS NOT NULL
+                    THEN (salary_min_k + salary_max_k) / 2.0 END AS salary_mid,
+               crawled_at, valid_from
+        FROM ods_raw
+        WHERE is_latest = TRUE
+      `);
+
+      await conn.query(`
+        CREATE VIEW dws_skill_agg AS
+        SELECT category, COUNT(*) AS demand_count,
+               ROUND(AVG(salary_mid)) AS avg_salary,
+               ROUND(PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY salary_mid)) AS p25,
+               ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY salary_mid)) AS p50,
+               ROUND(PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY salary_mid)) AS p75
+        FROM ods_raw
+        WHERE is_latest = TRUE AND salary_mid IS NOT NULL
+        GROUP BY category
+      `);
+
+      await conn.query(`
+        CREATE VIEW dws_city_agg AS
+        SELECT city, COUNT(*) AS job_count,
+               ROUND(AVG(salary_mid)) AS avg_salary
+        FROM ods_raw
+        WHERE is_latest = TRUE AND salary_mid IS NOT NULL AND city NOT IN ('', 'SEM', '抛光工')
+        GROUP BY city
+      `);
+
+      log('✅ DWD/DWS 视图创建完成', 'success');
+      setStatus('数据已就绪');
+    } catch (e) {
+      log(`❌ 加载失败: ${e.message}`, 'error');
+      setStatus(`错误: ${e.message}`);
+    }
+  } catch (e) {
+    log(`❌ 加载数据失败: ${e.message}`, 'error');
+    setStatus(`错误: ${e.message}`);
+  }
+}
+
+// ─── Run SQL query ──────────────────────────────────────────────────
+let currentColumns = [];
+let currentRows = [];
+
+window.runQuery = async function() {
+  const sqlEl = document.getElementById('sql');
+  const sql = sqlEl.value.trim();
+  if (!sql) return;
+
+  await initDB();
+
+  // 如果是查询 DWS/DWD，确保数据已加载
+  const needsData = /from\s+(dws_|dwd_|ods_)/i.test(sql);
+  if (needsData) {
+    await loadData();
+  }
+
+  setStatus('⏳ 执行查询...');
+  document.getElementById('btnRun').disabled = true;
+
+  try {
+    const start = performance.now();
+    const result = await conn.query(sql);
+    const elapsed = ((performance.now() - start) / 1000).toFixed(2);
+
+    // 尝试获取 schema 和行数
+    let columns = [];
+    let rows = [];
+    try {
+      columns = result.columns;
+      const it = result.toArray();
+      rows = it.slice(0, 1000); // Limit display to 1000
+    } catch (e) {
+      // DDL 查询（CREATE/INSERT）无结果集
+    }
+
+    currentColumns = columns;
+    currentRows = rows;
+
+    if (columns.length === 0) {
+      // DDL 成功
+      showInfo(`✅ 查询成功 (${elapsed}s)`);
+      document.getElementById('resultCount').textContent = '✓';
+      setStatus(`完成 (${elapsed}s)`);
+    } else {
+      renderTable(columns, rows);
+      document.getElementById('resultCount').textContent = `${rows.length} 行`;
+      updateSchema(columns);
+      updateMeta(columns, rows, elapsed);
+      setStatus(`${rows.length} 行 | ${elapsed}s`);
+    }
+
+    // 更新行信息
+    document.getElementById('rowInfo').textContent =
+      rows.length > 0 ? `${rows.length} 行, ${columns.length} 列` : '';
+
+    log(`查询完成: ${sql.substring(0, 60)}... (${elapsed}s)`, 'success');
+    switchTab('results');
+
+  } catch (e) {
+    showError(e.message);
+    log(`❌ 查询失败: ${e.message}`, 'error');
+    setStatus('查询失败');
+  }
+
+  document.getElementById('btnRun').disabled = false;
+};
+
+// ─── Render table ──────────────────────────────────────────────────
+function renderTable(columns, rows) {
+  const area = document.getElementById('resultsArea');
+  if (!columns || columns.length === 0) {
+    area.innerHTML = '<div class="msg-success">✅ 查询成功 (无结果集)</div>';
+    return;
+  }
+
+  let html = '<table><thead><tr>';
+  for (const col of columns) {
+    html += `<th>${esc(col)}</th>`;
+  }
+  html += '</tr></thead><tbody>';
+
+  for (const row of rows) {
+    html += '<tr>';
+    for (const col of columns) {
+      const val = row[col];
+      const display = val === null || val === undefined ? '<span style="color:#484f58">NULL</span>'
+                     : typeof val === 'number' ? val.toLocaleString()
+                     : esc(String(val));
+      html += `<td>${display}</td>`;
+    }
+    html += '</tr>';
+  }
+  html += '</tbody></table>';
+  area.innerHTML = html;
+}
+
+function showInfo(msg) {
+  document.getElementById('resultsArea').innerHTML =
+    `<div class="msg-success">${msg}</div>`;
+}
+
+function showError(msg) {
+  document.getElementById('resultsArea').innerHTML =
+    `<div class="msg-error">${esc(msg)}</div>`;
+}
+
+function updateSchema(columns) {
+  const area = document.getElementById('schemaArea');
+  let html = '<div class="schema-grid">';
+  for (const col of columns) {
+    const type = typeof (currentRows[0]?.[col]) || '?';
+    html += `<div class="schema-card"><h3>${esc(col)}</h3>`;
+    html += `<div class="field">类型: <code>${type}</code></div>`;
+    const sample = currentRows.slice(0, 3).map(r => r[col]).filter(v => v != null);
+    if (sample.length > 0) {
+      html += `<div class="field">样例: ${esc(String(sample[0]))}</div>`;
+    }
+    html += '</div>';
+  }
+  html += '</div>';
+  area.innerHTML = html;
+}
+
+function updateMeta(columns, rows, elapsed) {
+  const area = document.getElementById('metaArea');
+  const rowCount = rows.length;
+  const nullCounts = {};
+  const sampleVals = {};
+  for (const col of columns) {
+    nullCounts[col] = 0;
+    sampleVals[col] = new Set();
+  }
+  for (const row of rows) {
+    for (const col of columns) {
+      if (row[col] === null || row[col] === undefined) nullCounts[col]++;
+      if (sampleVals[col].size < 5) sampleVals[col].add(String(row[col]).slice(0, 30));
+    }
+  }
+
+  let html = `<table><thead><tr>
+    <th>列名</th><th>非空</th><th>空值率</th><th>样例值</th>
+  </tr></thead><tbody>`;
+
+  for (const col of columns) {
+    const nulls = nullCounts[col] || 0;
+    const nullRate = rowCount > 0 ? (nulls / rowCount * 100).toFixed(1) : '0.0';
+    const samples = [...sampleVals[col]].slice(0, 3).join(', ');
+    html += `<tr>
+      <td><strong>${esc(col)}</strong></td>
+      <td>${rowCount - nulls}</td>
+      <td>${nullRate}%</td>
+      <td style="max-width:250px;overflow:hidden;text-overflow:ellipsis">${esc(samples)}</td>
+    </tr>`;
+  }
+  html += '</tbody></table>';
+
+  html += `<div style="margin-top:12px;padding:8px 12px;background:var(--surface);border-radius:6px;font-size:12px;color:var(--text-dim)">
+    查询时间: ${elapsed}s · 返回 ${rowCount} 行 · ${columns.length} 列
+  </div>`;
+
+  area.innerHTML = html;
+}
+
+function clearResults() {
+  document.getElementById('resultsArea').innerHTML =
+    '<div class="empty-state"><div class="icon">▶</div><div>点击「运行」执行 SQL 查询</div></div>';
+  document.getElementById('schemaArea').innerHTML =
+    '<div class="empty-state"><div class="icon">📋</div><div>运行查询后自动显示表结构</div></div>';
+  document.getElementById('metaArea').innerHTML =
+    '<div class="empty-state"><div class="icon">ℹ️</div><div>运行查询后显示数据概况</div></div>';
+  document.getElementById('resultCount').textContent = '0';
+  document.getElementById('rowInfo').textContent = '';
+  currentColumns = [];
+  currentRows = [];
+}
+
+function resetDB() {
+  if (db) {
+    conn = null;
+    db = null;
+    tablesLoaded = false;
+  }
+  clearResults();
+  log('🔄 DB 已重置', 'info');
+  setStatus('已重置');
+}
+
+// ─── Tab switching ──────────────────────────────────────────────────
+window.switchTab = function(name) {
+  document.querySelectorAll('.tabs button').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  document.querySelector(`[data-tab="${name}"]`).classList.add('active');
+  document.getElementById(`tab-${name}`).classList.add('active');
+};
+
+// ─── Data source change ─────────────────────────────────────────────
+window.onSourceChange = function() {
+  const mode = document.getElementById('dataSource').value;
+  log(`数据源切换: ${mode === 'local' ? '本地' : 'Cloudflare R2'}`, 'info');
+  tablesLoaded = false; // Force reload on next query
+  showInfo(`数据源已切换至 ${mode === 'local' ? '本地' : 'Cloudflare R2'}\n下次查询时重新加载`);
+};
+
+// ─── Utilities ──────────────────────────────────────────────────────
+function esc(s) {
+  const div = document.createElement('div');
+  div.textContent = s;
+  return div.innerHTML;
+}
+
+// ─── Ctrl+Enter shortcut ────────────────────────────────────────────
+document.getElementById('sql').addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+    e.preventDefault();
+    window.runQuery();
+  }
+});
+
+// ─── Init ───────────────────────────────────────────────────────────
+log('🚀 Pulse Data Engine WASM 页面已加载');
+log('💡 Ctrl+Enter 执行查询');
+</script>
+</body>
+</html>

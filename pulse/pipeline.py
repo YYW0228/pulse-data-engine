@@ -6,10 +6,14 @@ pulse/pipeline.py — 三层数仓管道 v4 (Data Contracts + DLQ + Parquet)
                                   [fail] → write_dlq(SCHEMA_VIOLATION)
 """
 
-import re, duckdb, hashlib, warnings, logging, uuid
+import hashlib
+import logging
+import re
+import warnings
+from datetime import datetime, timezone
 from pathlib import Path
-from datetime import datetime
-from typing import Optional
+
+import duckdb
 
 logger = logging.getLogger("pulse.pipeline")
 
@@ -21,8 +25,11 @@ def build_safe_pattern(kw: str) -> str:
     return safe
 
 
+from typing import ClassVar
+
+
 class Pipeline:
-    CATEGORIES = [
+    CATEGORIES: ClassVar[list[tuple[str, list[str]]]] = [
         (
             "AI/ML算法",
             [
@@ -157,7 +164,7 @@ class Pipeline:
         ),
     ]
 
-    _COMPILED: list[tuple[str, list[re.Pattern]]] = []
+    _COMPILED: ClassVar[list[tuple[str, list[re.Pattern]]]] = []
     for name, kws in CATEGORIES:
         patterns = []
         for kw in kws:
@@ -177,7 +184,7 @@ class Pipeline:
         return "其他"
 
     @staticmethod
-    def content_hash(title: str, sal_min, sal_max, city: str) -> str:
+    def content_hash(title: str, sal_min: int | None, sal_max: int | None, city: str) -> str:
         raw = f"{title}|{sal_min}|{sal_max}|{city}"
         return hashlib.md5(raw.encode()).hexdigest()
 
@@ -192,7 +199,7 @@ class Pipeline:
         Path(parquet_path).mkdir(parents=True, exist_ok=True)
         self.con = duckdb.connect(str(self.db_path))
 
-    def init_schema(self):
+    def init_schema(self) -> None:
         con = self.con
         con.execute("CREATE SEQUENCE IF NOT EXISTS seq_row_id START 1")
 
@@ -248,8 +255,8 @@ class Pipeline:
         error_message: str,
         http_status: int | None = None,
         raw_payload: str = "",
-    ):
-        row_id = abs(hash(url + error_type + str(datetime.now()))) % (2**63)
+    ) -> None:
+        row_id = abs(hash(url + error_type + str(datetime.now(timezone.utc)))) % (2**63)
         self.con.execute(
             """
             INSERT OR IGNORE INTO dlq_jobs
@@ -366,7 +373,7 @@ class Pipeline:
                 stats["updated"] += 1
         return stats
 
-    def refresh_dwd(self):
+    def refresh_dwd(self) -> int:
         con = self.con
         con.execute("DELETE FROM dwd_cleaned_jobs")
         rows = con.execute(
@@ -395,7 +402,7 @@ class Pipeline:
             )
         return len(rows)
 
-    def refresh_dws(self):
+    def refresh_dws(self) -> None:
         con = self.con
         con.execute("DELETE FROM dws_skill_agg")
         con.execute(
@@ -406,7 +413,7 @@ class Pipeline:
             """INSERT INTO dws_city_agg SELECT city,COUNT(*),ROUND(AVG(salary_mid)) FROM dwd_cleaned_jobs WHERE city NOT IN ('','SEM','抛光工') AND salary_mid IS NOT NULL GROUP BY city"""
         )
 
-    def export_to_parquet(self):
+    def export_to_parquet(self) -> dict:
         con = self.con
         con.execute(
             f"COPY (SELECT *, EXTRACT(YEAR FROM crawled_at) AS year, EXTRACT(MONTH FROM crawled_at) AS month, CAST(crawled_at AS DATE) AS date FROM ods_raw_jobs WHERE is_latest=TRUE) TO '{self.parquet_path}' (FORMAT PARQUET, PARTITION_BY (year, month, date), OVERWRITE_OR_IGNORE 1)"
@@ -415,19 +422,26 @@ class Pipeline:
         return {"files": len(files), "bytes": sum(f.stat().st_size for f in files)}
 
     def verify(self) -> dict:
+        from pulse.metrics import metrics
+
         con = self.con
         ods = con.execute("SELECT COUNT(*) FROM ods_raw_jobs").fetchone()[0] or 0
+        # 更新指标
         latest = (
-            con.execute(
-                "SELECT COUNT(*) FROM ods_raw_jobs WHERE is_latest=TRUE"
-            ).fetchone()[0]
-            or 0
+            con.execute("SELECT COUNT(*) FROM ods_raw_jobs WHERE is_latest=TRUE").fetchone()[0] or 0
+        )
+        dwd = con.execute("SELECT COUNT(*) FROM dwd_cleaned_jobs").fetchone()[0] or 0
+        dlq = con.execute("SELECT COUNT(*) FROM dlq_jobs").fetchone()[0] or 0
+        metrics.ods_rows.labels(version="total").set(ods)
+        metrics.ods_rows.labels(version="latest").set(latest)
+        metrics.dwd_rows.set(dwd)
+        metrics.dlq_rows.set(dlq)
+        latest = (
+            con.execute("SELECT COUNT(*) FROM ods_raw_jobs WHERE is_latest=TRUE").fetchone()[0] or 0
         )
         dwd = con.execute("SELECT COUNT(*) FROM dwd_cleaned_jobs").fetchone()[0] or 0
         dws_n = (
-            con.execute(
-                "SELECT COALESCE(SUM(demand_count),0) FROM dws_skill_agg"
-            ).fetchone()[0]
+            con.execute("SELECT COALESCE(SUM(demand_count),0) FROM dws_skill_agg").fetchone()[0]
             or 0
         )
         excluded = (
@@ -448,9 +462,9 @@ class Pipeline:
             "consistent": (dws_n + excluded) == dwd == latest and dwd > 0,
         }
 
-    def run_full(self):
+    def run_full(self) -> dict:
         self.init_schema()
         return self.verify()
 
-    def close(self):
+    def close(self) -> None:
         self.con.close()

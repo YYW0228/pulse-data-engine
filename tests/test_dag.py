@@ -1,4 +1,5 @@
 """测试: DAG 拓扑 + Pipeline 导入"""
+
 from pulse.dag import DAG
 
 
@@ -7,6 +8,7 @@ def test_dag_topology():
     dag = DAG(name="test", db_path=":memory:")
 
     called = []
+
     @dag.task(name="a", depends_on=[])
     def task_a():
         called.append("a")
@@ -43,6 +45,7 @@ def test_circular_dependency_detected():
         pass
 
     import pytest
+
     with pytest.raises(ValueError, match="循环依赖"):
         dag.run()
     dag.close()
@@ -69,7 +72,8 @@ def test_dependency_failure_skips_downstream():
 def test_dag_state_persisted():
     """DAG 运行状态应写入 DuckDB"""
     import duckdb
-    con = duckdb.connect(":memory:")
+
+    duckdb.connect(":memory:")
     dag = DAG(name="test_persist")
 
     @dag.task(name="p1", depends_on=[])
@@ -77,8 +81,6 @@ def test_dag_state_persisted():
         pass
 
     dag.run(run_id="persist_001")
-    rows = dag.con.execute(
-        "SELECT COUNT(*) FROM dag_runs WHERE run_id='persist_001'"
-    ).fetchone()[0]
+    rows = dag.con.execute("SELECT COUNT(*) FROM dag_runs WHERE run_id='persist_001'").fetchone()[0]
     assert rows >= 1  # at least one task recorded
     dag.close()

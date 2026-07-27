@@ -5,13 +5,18 @@ pulse/runner.py — DAG 任务定义 + 7x24 运行入口
   uv run python -m pulse.runner              # 单次运行
   uv run python -m pulse.runner --schedule   # 持续调度
 """
-import logging, time, sys
+
+import logging
+import os
+import sys
+import time
+
 from pulse.dag import DAG
-from pulse.pipeline import Pipeline
 from pulse.logging_config import setup_logging
+from pulse.pipeline import Pipeline
 
 # Cloudflare 配置
-import os; os.environ.setdefault("CF_ACCOUNT_ID", "6025acdb6aa6561281513bddf6c2b87d")
+os.environ.setdefault("CF_ACCOUNT_ID", "6025acdb6aa6561281513bddf6c2b87d")
 
 # JSON 结构化日志 (控制台 + data/logs/pulse.jsonl)
 log_file = setup_logging()
@@ -21,9 +26,10 @@ dag = DAG(name="pulse_etl")
 
 
 @dag.task(name="fetch_validate", depends_on=[])
-def task_fetch_validate():
+def task_fetch_validate() -> None:
     """采集 → Data Contracts 校验 → ODS"""
     from pulse.extractors import fetch_all as fetch_remotive
+
     raw = fetch_remotive(limit_per_category=5)
     logger.info(f"采集: {len(raw)} 条")
 
@@ -32,15 +38,15 @@ def task_fetch_validate():
     # 先合并已有的 raw_jobs (已有静态数据)
     existing = p.con.execute("SELECT * FROM raw_jobs WHERE job_title IS NOT NULL").fetchdf()
     if len(existing) > 0:
-        existing_result = p.validate_and_route(existing.to_dict('records'))
-        if existing_result['passed']:
-            p.merge_into_ods(existing_result['passed'])
+        existing_result = p.validate_and_route(existing.to_dict("records"))
+        if existing_result["passed"]:
+            p.merge_into_ods(existing_result["passed"])
 
     # 再合并新采集的数据
     result = p.validate_and_route(raw)
     logger.info(f"校验: {result['summary']['passed']}通过 / {result['summary']['failed']}失败")
-    if result['passed']:
-        stats = p.merge_into_ods(result['passed'])
+    if result["passed"]:
+        stats = p.merge_into_ods(result["passed"])
         logger.info(f"ODS: +{stats['new']}新 / {stats['updated']}更新 / {stats['unchanged']}不变")
 
     v = p.verify()
@@ -49,7 +55,7 @@ def task_fetch_validate():
 
 
 @dag.task(name="transform_dwd", depends_on=["fetch_validate"])
-def task_transform_dwd():
+def task_transform_dwd() -> None:
     p = Pipeline()
     p.init_schema()
     n = p.refresh_dwd()
@@ -58,7 +64,7 @@ def task_transform_dwd():
 
 
 @dag.task(name="aggregate_dws", depends_on=["transform_dwd"])
-def task_aggregate_dws():
+def task_aggregate_dws() -> None:
     p = Pipeline()
     p.init_schema()
     p.refresh_dws()
@@ -68,49 +74,53 @@ def task_aggregate_dws():
 
 
 @dag.task(name="export_parquet", depends_on=["aggregate_dws"])
-def task_export_parquet():
+def task_export_parquet() -> None:
     p = Pipeline()
     p.init_schema()
     r = p.export_to_parquet()
-    logger.info(f"Parquet: {r['files']} 文件, {r['bytes']/1024:.1f} KB")
+    logger.info(f"Parquet: {r['files']} 文件, {r['bytes'] / 1024:.1f} KB")
     p.close()
 
 
 @dag.task(name="quality_check", depends_on=["export_parquet"])
-def task_quality_check():
+def task_quality_check() -> None:
     """DAG 末尾执行质量 SLA 检查 + 告警"""
-    from pulse.monitor import Monitor, QualitySLA, AlertLevel
+    from pulse.monitor import AlertLevel, Monitor, QualitySLA
+
     sla = QualitySLA("data/jobs.duckdb")
     report = sla.full_report()
-    logger.info(f"质量报告: 完整={report['completeness']['status']} "
-                f"有效={report['validity']['status']} "
-                f"新鲜={report['freshness']['status']} "
-                f"一致={report['consistency']['status']}")
+    logger.info(
+        f"质量报告: 完整={report['completeness']['status']} "
+        f"有效={report['validity']['status']} "
+        f"新鲜={report['freshness']['status']} "
+        f"一致={report['consistency']['status']}"
+    )
 
     # 任意一项 CRITICAL → 告警
     monitor = Monitor()
     issues = []
     for k, v in report.items():
-        if isinstance(v, dict) and v.get("status") == "CRITICAL":
-            if k != "timestamp":
-                issues.append(f"{k}: {v}")
+        if isinstance(v, dict) and v.get("status") == "CRITICAL" and k != "timestamp":
+            issues.append(f"{k}: {v}")
     if issues:
-        monitor.alert(AlertLevel.CRITICAL, "Quality SLA Failed",
-                      "\n".join(str(i) for i in issues))
-        raise Exception(f"质量检查失败: {len(issues)} 项 CRITICAL")
+        monitor.alert(AlertLevel.CRITICAL, "Quality SLA Failed", "\n".join(str(i) for i in issues))
+        raise RuntimeError(f"质量检查失败: {len(issues)} 项 CRITICAL")
 
     # DLQ 检查
     import duckdb
+
     con = duckdb.connect("data/jobs.duckdb")
-    dlq = con.execute("SELECT COUNT(*) FROM dlq_jobs").fetchone()[0]
+    count = con.execute("SELECT COUNT(*) FROM dlq_jobs").fetchone()
+    dlq = count[0] if count else 0
     con.close()
     monitor.check_dlq_spike(dlq)
 
 
 @dag.task(name="backup", depends_on=["quality_check"])
-def task_backup():
+def task_backup() -> None:
     """DAG 末尾执行备份 (本地 gzip + R2)"""
     from pulse.backup import BackupManager
+
     bm = BackupManager(
         r2_bucket="pulse-data-engine-parquet",
     )
@@ -119,7 +129,7 @@ def task_backup():
     bm.cleanup(keep_last=7)
 
 
-def run_once():
+def run_once() -> dict:
     logger.info("=" * 50)
     logger.info("Pulse Data Engine — DAG 启动")
     logger.info("=" * 50)
@@ -129,13 +139,13 @@ def run_once():
     return result
 
 
-def run_scheduled(interval: int = 3600):
+def run_scheduled(interval: int = 3600) -> None:
     logger.info(f"7x24 调度启动, 间隔={interval}s")
     while True:
         try:
             run_once()
-        except Exception as e:
-            logger.error(f"DAG 崩溃: {e}", exc_info=True)
+        except Exception:
+            logger.exception("DAG 崩溃")
         logger.info(f"等待 {interval}s 后下一轮...")
         time.sleep(interval)
 

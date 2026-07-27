@@ -1,5 +1,9 @@
 """测试: Pipeline 核心 + SCD Type 2 + DLQ + 分类"""
-import pytest, os, tempfile
+
+import os
+
+import pytest
+
 from pulse.pipeline import Pipeline
 
 
@@ -15,14 +19,30 @@ def fresh_db(tmp_path):
         os.remove(db_path)
 
 
-JOB_A = {"url": "https://ex.com/job/a", "job_title": "AI工程师",
-         "company_name": "测试", "city": "北京", "salary_min_k": 30, "salary_max_k": 50}
+JOB_A = {
+    "url": "https://ex.com/job/a",
+    "job_title": "AI工程师",
+    "company_name": "测试",
+    "city": "北京",
+    "salary_min_k": 30,
+    "salary_max_k": 50,
+}
 
-JOB_A_CHANGED = {"url": "https://ex.com/job/a", "job_title": "AI工程师",
-                 "company_name": "测试", "city": "北京", "salary_min_k": 35, "salary_max_k": 60}
+JOB_A_CHANGED = {
+    "url": "https://ex.com/job/a",
+    "job_title": "AI工程师",
+    "company_name": "测试",
+    "city": "北京",
+    "salary_min_k": 35,
+    "salary_max_k": 60,
+}
 
-JOB_B = {"url": "https://ex.com/job/b", "job_title": "后端开发",
-         "salary_min_k": 25, "salary_max_k": 45}
+JOB_B = {
+    "url": "https://ex.com/job/b",
+    "job_title": "后端开发",
+    "salary_min_k": 25,
+    "salary_max_k": 45,
+}
 
 
 class TestSCDType2:
@@ -48,7 +68,9 @@ class TestSCDType2:
         stats = p.merge_into_ods([JOB_A_CHANGED])  # 薪资变化
         assert stats["updated"] == 1
         # 2 个版本: 原始 + 变更
-        rows = p.con.execute("SELECT is_latest, salary_min_k FROM ods_raw_jobs WHERE entity_id in (SELECT entity_id FROM ods_raw_jobs LIMIT 1) ORDER BY row_id").fetchall()
+        rows = p.con.execute(
+            "SELECT is_latest, salary_min_k FROM ods_raw_jobs WHERE entity_id in (SELECT entity_id FROM ods_raw_jobs LIMIT 1) ORDER BY row_id"
+        ).fetchall()
         assert len(rows) == 2
         assert rows[0][1] == 30  # 原始: is_latest=False, salary=30
         assert rows[1][1] == 35  # 最新: is_latest=True, salary=35
@@ -64,7 +86,9 @@ class TestSCDType2:
         p.merge_into_ods([JOB_A, JOB_B])
         n = p.refresh_dwd()
         assert n == 2
-        cats = p.con.execute("SELECT DISTINCT category FROM dwd_cleaned_jobs ORDER BY category").fetchall()
+        cats = p.con.execute(
+            "SELECT DISTINCT category FROM dwd_cleaned_jobs ORDER BY category"
+        ).fetchall()
         assert len(cats) >= 2
 
 

@@ -5,10 +5,11 @@ pulse/schema.py — 数据契约 (Data Contracts as Code)
 校验失败 → SCHEMA_VIOLATION → 死信队列 (DLQ)。
 """
 
-from pydantic import BaseModel, Field, field_validator, model_validator
-from typing import Optional, Any
-from enum import Enum
 from datetime import datetime
+from enum import Enum
+from typing import Any
+
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class ExperienceLevel(str, Enum):
@@ -35,25 +36,21 @@ class RawJobContract(BaseModel):
     job_title: str = Field(..., min_length=1, max_length=500, description="岗位标题")
 
     # ── 可选但类型必须正确 ──
-    company_name: Optional[str] = Field(None, max_length=200)
-    city: Optional[str] = Field(None, max_length=50)
-    salary_min_k: Optional[int] = Field(
-        None, ge=0, le=1000, description="最低薪资 (k/月)"
-    )
-    salary_max_k: Optional[int] = Field(
-        None, ge=0, le=1000, description="最高薪资 (k/月)"
-    )
-    education: Optional[str] = Field(None, max_length=20)
-    experience: Optional[str] = Field(None, max_length=20)
-    keyword: Optional[str] = Field(None, max_length=100)
-    source: Optional[str] = Field(None, max_length=50)
-    domain: Optional[str] = Field(None, max_length=50)
+    company_name: str | None = Field(None, max_length=200)
+    city: str | None = Field(None, max_length=50)
+    salary_min_k: int | None = Field(None, ge=0, le=1000, description="最低薪资 (k/月)")
+    salary_max_k: int | None = Field(None, ge=0, le=1000, description="最高薪资 (k/月)")
+    education: str | None = Field(None, max_length=20)
+    experience: str | None = Field(None, max_length=20)
+    keyword: str | None = Field(None, max_length=100)
+    source: str | None = Field(None, max_length=50)
+    domain: str | None = Field(None, max_length=50)
 
     # ── 自定义校验器 ──
 
     @field_validator("salary_min_k", "salary_max_k", mode="before")
     @classmethod
-    def coerce_salary(cls, v: Any) -> Optional[int]:
+    def coerce_salary(cls, v: Any) -> int | None:
         """薪资必须为整数。允许 None 和 0 (未标注)。"""
         if v is None:
             return None
@@ -83,7 +80,7 @@ class RawJobContract(BaseModel):
 
     @field_validator("experience", mode="before")
     @classmethod
-    def normalize_experience(cls, v: Any) -> Optional[str]:
+    def normalize_experience(cls, v: Any) -> str | None:
         if v is None or v == "":
             return None
         valid_levels = {e.value for e in ExperienceLevel}
@@ -109,13 +106,14 @@ class RawJobContract(BaseModel):
         return v  # 保留原始值但不拒绝
 
     @model_validator(mode="after")
-    def check_salary_consistency(self):
+    def check_salary_consistency(self) -> "RawJobContract":
         """薪资区间校验: max >= min"""
-        if self.salary_min_k is not None and self.salary_max_k is not None:
-            if self.salary_max_k < self.salary_min_k:
-                raise ValueError(
-                    f"薪资区间异常: max({self.salary_max_k}) < min({self.salary_min_k})"
-                )
+        if (
+            self.salary_min_k is not None
+            and self.salary_max_k is not None
+            and self.salary_max_k < self.salary_min_k
+        ):
+            raise ValueError(f"薪资区间异常: max({self.salary_max_k}) < min({self.salary_min_k})")
         return self
 
 

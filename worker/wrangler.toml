@@ -1,0 +1,20 @@
+# Pulse Data Engine — Cloudflare Worker Config
+# Deploy: wrangler deploy
+name = "pulse-data-engine"
+main = "index.js"
+compatibility_date = "2026-07-01"
+
+# ── R2 Bucket binding ────────────────────────────────────────────────
+# Create the bucket first:
+#   wrangler r2 bucket create pulse-data-engine-parquet
+[[r2_buckets]]
+binding = "PULSE_BUCKET"
+bucket_name = "pulse-data-engine-parquet"
+
+# ── Routes ───────────────────────────────────────────────────────────
+# Route the worker to a custom domain or workers.dev subdomain
+# workers.dev is enabled by default: https://pulse-data-engine.<subdomain>.workers.dev
+# For custom domain, uncomment:
+# routes = [
+#   { pattern = "data.pulse-engine.dev", custom_domain = true },
+# ]

@@ -1,5 +1,7 @@
 """测试: Data Contracts (Pydantic 校验 + DLQ 分流)"""
+
 import pytest
+
 from pulse.schema import RawJobContract
 
 

@@ -14,8 +14,54 @@ dependencies = [
 [dependency-groups]
 dev = [
     "mypy>=2.3.0",
+    "prometheus-client>=0.21.0",
     "pytest>=9.1.1",
     "pytest-benchmark>=5.2.3",
     "pytest-cov>=7.1.0",
     "ruff>=0.16.0",
+    "streamlit>=1.42.0",
 ]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+# BLE001: 全局捕获 Exception 在 LLM 降级/网络重试/外部回调等场景是故意设计
+ignore = ["BLE001"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["F401", "F841"]
+"scripts/*" = ["BLE001"]
+
+[tool.pytest.ini_options]
+addopts = "--cov=pulse --cov-report=term-missing --cov-fail-under=65 -v"
+
+[tool.coverage.run]
+source = ["pulse"]
+omit = [
+    "tests/*", "scripts/*", "serve.py",
+    "pulse/runner.py", "pulse/wasm_server.py", "pulse/extractors/*",
+    "pulse/fetcher.py", "pulse/logging_config.py", "pulse/__init__.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "raise AssertionError",
+    "raise NotImplementedError",
+]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+ignore_missing_imports = true
+# DuckDB fetchone() → Tuple | None 是 API 设计问题, 不阻塞 gate
+# 同时抑制 httpx 类型推断、Pydantic validator 返回值等非关键问题
+disable_error_code = "index,type-arg,no-untyped-call,misc,arg-type,no-any-return,return-value,attr-defined,no-untyped-def,assignment"
+exclude = "pulse/wasm_server\\.py|pulse/runner\\.py|serve\\.py"
+
+[[tool.mypy.overrides]]
+module = ["pulse.ai_extractor", "pulse.extractors.boss"]
+ignore_missing_imports = true

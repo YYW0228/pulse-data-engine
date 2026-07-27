@@ -9,10 +9,12 @@ pulse/dag.py — 轻量级 DAG 编排引擎
   - 7x24: cron 调用 run_dag(), 幂等触发
 """
 
-import time, logging, random, traceback
-from datetime import datetime
-from typing import Callable, Optional
+import logging
+import time
+from collections.abc import Callable
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger("pulse.dag")
 
@@ -24,7 +26,7 @@ class Task:
         self,
         name: str,
         fn: Callable,
-        depends_on: list[str] = None,
+        depends_on: list[str] | None = None,
         max_retries: int = 2,
         retry_delay: float = 2.0,
         timeout: int = 300,
@@ -43,7 +45,7 @@ class Task:
 class DAG:
     """有向无环图 — 任务编排引擎"""
 
-    def __init__(self, name: str, db_path: str | Path = "data/jobs.duckdb"):
+    def __init__(self, name: str, db_path: str | Path = "data/jobs.duckdb") -> None:
         self.name = name
         self.tasks: dict[str, Task] = {}
         self.db_path = Path(db_path)
@@ -71,8 +73,8 @@ class DAG:
 
     def task(
         self,
-        name: str = None,
-        depends_on: list[str] = None,
+        name: str | None = None,
+        depends_on: list[str] | None = None,
         max_retries: int = 2,
         retry_delay: float = 2.0,
     ):
@@ -122,7 +124,7 @@ class DAG:
         task_name: str,
         status: str,
         started_at: datetime,
-        finished_at: datetime = None,
+        finished_at: datetime | None = None,
         error: str = "",
         retry_count: int = 0,
     ):
@@ -148,31 +150,31 @@ class DAG:
             ],
         )
 
-    def run(self, run_id: str = None) -> dict:
+    def run(self, run_id: str | None = None) -> dict:
         """执行 DAG: 拓扑排序 → 逐任务运行 → 失败隔离"""
         if run_id is None:
-            run_id = f"{self.name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            run_id = f"{self.name}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
 
         order = self._topological_sort()
-        results = {}
+        results: dict[str, dict[str, Any]] = {}
+        dag_t0 = time.time()
+
+        # 延迟导入 metrics (避免循环依赖)
+        from pulse.metrics import metrics
 
         logger.info(f"DAG '{self.name}' 启动 ({run_id}), {len(order)} 任务")
 
         for task_name in order:
             task = self.tasks[task_name]
-
             # 检查依赖
             deps_ok = all(
-                results.get(dep, {}).get("status") == "success"
-                for dep in task.depends_on
+                results.get(dep, {}).get("status") == "success" for dep in task.depends_on
             )
             if not deps_ok:
                 failed_deps = [
-                    d
-                    for d in task.depends_on
-                    if results.get(d, {}).get("status") != "success"
+                    d for d in task.depends_on if results.get(d, {}).get("status") != "success"
                 ]
-                started = datetime.now()
+                started = datetime.now(timezone.utc)
                 self._record_run(
                     run_id,
                     task_name,
@@ -188,12 +190,14 @@ class DAG:
                 continue
 
             # 执行 (含重试)
-            started = datetime.now()
+            started = datetime.now(timezone.utc)
             last_error = ""
             for attempt in range(task.max_retries + 1):
                 try:
+                    t0 = time.time()
                     task.fn()
-                    finished = datetime.now()
+                    duration = time.time() - t0
+                    finished = datetime.now(timezone.utc)
                     self._record_run(
                         run_id,
                         task_name,
@@ -203,19 +207,25 @@ class DAG:
                         retry_count=attempt,
                     )
                     results[task_name] = {"status": "success"}
+                    # 指标: DAG task success
+                    metrics.dag_task_duration.labels(task_name=task_name, status="success").observe(
+                        duration
+                    )
+                    metrics.dag_task_total.labels(task_name=task_name, status="success").inc()
                     logger.info(f"  ✅ {task_name} (attempt {attempt + 1})")
                     break
                 except Exception as e:
                     last_error = str(e)
                     if attempt < task.max_retries:
                         delay = task.retry_delay * (2**attempt)
+                        metrics.dag_task_retries.labels(task_name=task_name).inc()
                         logger.warning(
                             f"  🔄 {task_name}: 重试 ({attempt + 1}/{task.max_retries}) "
                             f"after {delay:.1f}s — {str(e)[:60]}"
                         )
                         time.sleep(delay)
                     else:
-                        finished = datetime.now()
+                        finished = datetime.now(timezone.utc)
                         self._record_run(
                             run_id,
                             task_name,
@@ -226,7 +236,16 @@ class DAG:
                             retry_count=attempt,
                         )
                         results[task_name] = {"status": "failed", "error": last_error}
+                        # 指标: DAG task failure
+                        duration = (finished - started).total_seconds()
+                        metrics.dag_task_duration.labels(
+                            task_name=task_name, status="failed"
+                        ).observe(duration)
+                        metrics.dag_task_total.labels(task_name=task_name, status="failed").inc()
                         logger.error(f"  ❌ {task_name}: 失败 ({last_error[:100]})")
+
+        # DAG run duration metric
+        metrics.dag_run_duration.observe(time.time() - dag_t0)
 
         # Summary
         success = sum(1 for r in results.values() if r.get("status") == "success")
@@ -270,8 +289,7 @@ class DAG:
         return {
             "total_runs": len(recent),
             "runs": [
-                {"run_id": r[0], "tasks": r[1], "passed": r[2], "failed": r[3]}
-                for r in recent
+                {"run_id": r[0], "tasks": r[1], "passed": r[2], "failed": r[3]} for r in recent
             ],
         }
 

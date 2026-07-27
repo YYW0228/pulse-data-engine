@@ -8,13 +8,15 @@ pulse/ai_extractor.py — LLM 增强的职位解析 (可选)
 
 无 API key 时静默降级, 不阻断管道。
 """
-import json, os, logging
-from typing import Optional
+
+import json
+import logging
+import os
 
 logger = logging.getLogger("pulse.ai_extractor")
 
 
-def _get_client():
+def _get_client() -> tuple[str, object] | None:
     """获取 LLM 客户端 (OpenAI 兼容接口)"""
     api_key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("OPENAI_API_KEY")
     if not api_key:
@@ -23,6 +25,7 @@ def _get_client():
     if os.environ.get("ANTHROPIC_API_KEY"):
         try:
             from anthropic import Anthropic
+
             return ("anthropic", Anthropic(api_key=api_key))
         except ImportError:
             logger.warning("anthropic 包未安装")
@@ -30,6 +33,7 @@ def _get_client():
     else:
         try:
             from openai import OpenAI
+
             return ("openai", OpenAI(api_key=api_key))
         except ImportError:
             logger.warning("openai 包未安装")
@@ -90,14 +94,14 @@ def generate_summary(job_title: str, description: str = "") -> str:
                 max_tokens=100,
                 messages=[{"role": "user", "content": f"{prompt}\n\n{text}"}],
             )
-            return resp.content[0].text.strip()
+            return str(resp.content[0].text).strip()
         else:
             resp = cl.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[{"role": "user", "content": f"{prompt}\n\n{text}"}],
                 max_tokens=100,
             )
-            return resp.choices[0].message.content.strip()
+            return str(resp.choices[0].message.content).strip()
     except Exception as e:
         logger.warning(f"LLM generate_summary failed: {e}")
         return job_title

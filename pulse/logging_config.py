@@ -5,17 +5,20 @@ pulse/logging_config.py — 结构化日志配置
   - 控制台: 彩色时间戳格式 (human-friendly)
   - 文件: JSON Lines (可被 ELK/Datadog 聚合)
 """
-import logging, json, sys
-from datetime import datetime
+
+import json
+import logging
+import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 
 class JSONFormatter(logging.Formatter):
     """JSON Lines 格式, 每行一个结构化事件"""
 
-    def format(self, record):
-        log = {
-            "timestamp": datetime.fromtimestamp(record.created).isoformat(),
+    def format(self, record: logging.LogRecord) -> str:
+        log: dict[str, object] = {
+            "timestamp": datetime.fromtimestamp(record.created, tz=timezone.utc).isoformat(),
             "level": record.levelname,
             "logger": record.name,
             "message": record.getMessage(),
@@ -41,10 +44,12 @@ def setup_logging(log_dir: str = "data/logs", level: int = logging.INFO):
 
     # Handler 1: 控制台 (人类可读)
     console = logging.StreamHandler(sys.stdout)
-    console.setFormatter(logging.Formatter(
-        "%(asctime)s [%(name)s] %(levelname)s %(message)s",
-        datefmt="%H:%M:%S",
-    ))
+    console.setFormatter(
+        logging.Formatter(
+            "%(asctime)s [%(name)s] %(levelname)s %(message)s",
+            datefmt="%H:%M:%S",
+        )
+    )
     root.addHandler(console)
 
     # Handler 2: JSON Lines 文件 (可聚合)

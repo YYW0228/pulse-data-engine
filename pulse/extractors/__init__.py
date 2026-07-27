@@ -4,16 +4,18 @@ pulse/extractors/remotive.py — Remotive 远程工作 API 适配器
 数据源: https://remotive.com/api/remote-jobs
 特点: 免费, 无需 API key, 结构化 JSON, 实时
 """
-import re, logging, httpx
-from datetime import datetime
-from typing import Optional
+
+import logging
+import re
+
+import httpx
 
 logger = logging.getLogger("pulse.extractor.remotive")
 
 API_URL = "https://remotive.com/api/remote-jobs"
 
 
-def parse_salary(salary_str: Optional[str]) -> tuple[Optional[int], Optional[int]]:
+def parse_salary(salary_str: str | None) -> tuple[int | None, int | None]:
     """解析薪资格式: '$50k-$100k' → (50, 100)"""
     if not salary_str or salary_str == "-":
         return None, None
@@ -44,26 +46,36 @@ def fetch(category: str = "data", limit: int = 20) -> list[dict]:
     results = []
     for job in jobs:
         salary_min, salary_max = parse_salary(job.get("salary"))
-        results.append({
-            "url": job.get("url", ""),
-            "job_title": job.get("title", ""),
-            "company_name": job.get("company_name", ""),
-            "city": job.get("candidate_required_location", "Remote") or "Remote",
-            "salary_min_k": salary_min,
-            "salary_max_k": salary_max,
-            "education": None,
-            "experience": None,
-            "keyword": job.get("category", ""),
-            "source": "remotive",
-            "domain": job.get("category", ""),
-        })
+        results.append(
+            {
+                "url": job.get("url", ""),
+                "job_title": job.get("title", ""),
+                "company_name": job.get("company_name", ""),
+                "city": job.get("candidate_required_location", "Remote") or "Remote",
+                "salary_min_k": salary_min,
+                "salary_max_k": salary_max,
+                "education": None,
+                "experience": None,
+                "keyword": job.get("category", ""),
+                "source": "remotive",
+                "domain": job.get("category", ""),
+            }
+        )
     return results
 
 
 def fetch_all(limit_per_category: int = 10) -> list[dict]:
     """多类别抓取"""
-    categories = ["data", "engineering", "artificial-intelligence", "product",
-                   "management", "design", "sales", "marketing"]
+    categories = [
+        "data",
+        "engineering",
+        "artificial-intelligence",
+        "product",
+        "management",
+        "design",
+        "sales",
+        "marketing",
+    ]
     all_jobs = []
     for cat in categories:
         jobs = fetch(cat, limit_per_category)
