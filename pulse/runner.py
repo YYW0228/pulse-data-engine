@@ -89,8 +89,8 @@ def task_export_iceberg() -> None:
     p = Pipeline()
     p.init_schema()
     r = p.export_to_iceberg()
-    snaps = len(r.get("snapshots", []))
-    logger.info(f"Iceberg: {r['data_files']} 文件, {r['total_bytes'] / 1024:.1f} KB, {snaps} 快照")
+    logger.info(f"Iceberg: {r['data_files']} 文件, {r['total_bytes']/1024:.1f} KB, "
+                f"{r['retained']} 保留, {r['deleted']} 清理")
     p.close()
 
 

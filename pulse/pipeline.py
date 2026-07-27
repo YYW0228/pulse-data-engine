@@ -426,69 +426,104 @@ class Pipeline:
 
     # ── Iceberg 冷存储 (time travel) ────────────────────────────────
 
-    def export_to_iceberg(self) -> dict:
-        """将 ODS 最新数据导出为 Iceberg 格式, 支持 time travel"""
+    def export_to_iceberg(self, run_id: str | None = None) -> dict:
+        """将 ODS 全量导出为 Iceberg 格式, 每次运行创建新快照
+
+        每个 run_id 对应独立 Iceberg 表目录:
+          data/ods_iceberg/{run_id}/
+        保留最近 7 次快照, 自动清理旧的。
+        """
+        from datetime import datetime, timezone
+
         con = self.con
         con.execute("LOAD iceberg")
 
-        # 写完整 ODS 表 (含历史版本, 非仅 is_latest)
-        # Iceberg 自动创建快照, time travel 可回溯任意版本
+        run_id = run_id or datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        export_path = str(Path(self.iceberg_path) / run_id)
+        Path(export_path).mkdir(parents=True, exist_ok=True)
+
+        # 写入 Iceberg (不 OVERWRITE — 每次新快照)
         con.execute(
-            f"COPY (SELECT * FROM ods_raw_jobs) TO '{self.iceberg_path}' "
-            f"(FORMAT ICEBERG, OVERWRITE_OR_IGNORE 1)"
+            f"COPY (SELECT * FROM ods_raw_jobs) TO '{export_path}' "
+            f"(FORMAT ICEBERG)"
         )
 
         # 统计
-        data_files = list((Path(self.iceberg_path) / "data").rglob("*.parquet"))
+        data_dir = Path(export_path) / "data"
+        data_files = list(data_dir.rglob("*.parquet")) if data_dir.exists() else []
         size = sum(f.stat().st_size for f in data_files) if data_files else 0
-        meta_files = list((Path(self.iceberg_path) / "metadata").rglob("*"))
-        meta_size = sum(f.stat().st_size for f in meta_files) if meta_files else 0
 
-        # 读取快照信息
-        snapshots = con.execute(
-            f"SELECT snapshot_id, timestamp_ms, manifest_list "
-            f"FROM iceberg_snapshots('{self.iceberg_path}')"
-        ).fetchall()
+        # 清理旧快照 (保留最近 7 个)
+        all_runs = sorted(
+            [d for d in Path(self.iceberg_path).iterdir() if d.is_dir() and d.name != ".gitkeep"],
+            reverse=True,
+        )
+        deleted = 0
+        for old in all_runs[7:]:  # keep last 7
+            import shutil
+            shutil.rmtree(old)
+            deleted += 1
 
         return {
+            "run_id": run_id,
             "data_files": len(data_files),
             "data_bytes": size,
-            "meta_bytes": meta_size,
-            "total_bytes": size + meta_size,
-            "snapshots": [
-                {"id": str(s[0]), "ts": str(s[1])[:19], "rows": "*"}
-                for s in snapshots
-            ],
+            "total_bytes": size,
+            "retained": min(len(all_runs), 7),
+            "deleted": deleted,
         }
 
     def list_iceberg_snapshots(self) -> list[dict]:
-        """列出所有 Iceberg 快照 (time travel 时间点)"""
-        path = Path(self.iceberg_path)
-        if not path.exists() or not any(path.iterdir()):
-            return []
-        con = self.con
-        con.execute("LOAD iceberg")
-        try:
-            snaps = con.execute(
-                f"SELECT snapshot_id, timestamp_ms "
-                f"FROM iceberg_snapshots('{self.iceberg_path}') "
-                f"ORDER BY timestamp_ms DESC"
-            ).fetchall()
-            return [
-                {"id": str(s[0]), "timestamp": str(s[1])[:19], "rows": "*"}
-                for s in snaps
-            ]
-        except Exception:
+        """列出所有 Iceberg 快照 (按运行时间倒序)"""
+        base = Path(self.iceberg_path)
+        if not base.exists():
             return []
 
-    def iceberg_query_at(self, snapshot_id: str, sql: str = "SELECT * FROM ods_raw_jobs LIMIT 10") -> list:
-        """对指定 Iceberg 快照执行 SQL 查询 (time travel)"""
+        runs = sorted(
+            [d for d in base.iterdir() if d.is_dir()
+             and d.name != ".gitkeep"
+             and d.name != "data"        # 不是旧版单快照结构
+             and d.name != "metadata"],
+            reverse=True,
+        )
+        result = []
+        for run_dir in runs:
+            meta_dir = run_dir / "metadata"
+            if meta_dir.exists():
+                # 读取第一个 metadata 文件获取快照信息
+                meta_files = sorted(meta_dir.glob("*.metadata.json"))
+                if meta_files:
+                    import json
+                    try:
+                        meta = json.loads(meta_files[0].read_text())
+                        result.append({
+                            "run_id": run_dir.name,
+                            "snapshot_id": str(meta.get("current-snapshot-id", "?")),
+                            "timestamp": str(meta.get("last-updated-ms", "?")),
+                            "rows": "*",
+                        })
+                        continue
+                    except (json.JSONDecodeError, OSError):
+                        pass
+            result.append({
+                "run_id": run_dir.name,
+                "snapshot_id": "?",
+                "timestamp": "?",
+                "rows": "*",
+            })
+        return result
+
+    def iceberg_query_at(self, run_id: str, sql: str = "SELECT * FROM ods_raw_jobs LIMIT 10") -> list:
+        """对指定 run_id 的 Iceberg 快照执行 SQL 查询 (time travel)"""
+        export_path = str(Path(self.iceberg_path) / run_id)
+        if not Path(export_path).exists():
+            return []
         con = self.con
         con.execute("LOAD iceberg")
-        # 创建视图指向特定快照
+        con.execute("SET unsafe_enable_version_guessing = true")
         con.execute(
             f"CREATE OR REPLACE VIEW ods_raw_at AS "
-            f"SELECT * FROM iceberg_scan('{self.iceberg_path}', snapshot_from_id={snapshot_id})"
+            f"SELECT * FROM iceberg_scan('{export_path}')"
         )
         return con.execute(sql).fetchall()
 
