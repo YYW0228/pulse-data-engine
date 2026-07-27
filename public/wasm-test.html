@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>DuckDB WASM — Parquet 查询演示</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>body{background:#f8fafc;color:#1e293b;font-family:system-ui}</style>
+</head>
+<body class="p-6 max-w-4xl mx-auto">
+<h1 class="text-xl font-bold mb-1">🦆 DuckDB WASM + Parquet</h1>
+<p class="text-sm text-gray-500 mb-6">浏览器直接 SQL 查询 Cloudflare R2 Parquet 文件，零后端</p>
+
+<div class="grid grid-cols-3 gap-3 mb-6" id="stats"></div>
+<div id="querySection" class="bg-white rounded-xl border p-4 mb-4">
+  <div class="flex gap-2 mb-3">
+    <input id="sqlInput" value="SELECT category, COUNT(*) as demand, ROUND(AVG(salary_mid)) as avg_sal FROM jobs WHERE category != '其他' AND salary_mid IS NOT NULL GROUP BY category ORDER BY demand DESC" class="flex-1 border rounded-lg px-3 py-2 text-sm font-mono">
+    <button onclick="runQuery()" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700">▶ 查询</button>
+  </div>
+  <div id="result" class="text-sm text-gray-400">点击查询加载 DuckDB WASM 并查询 155KB Parquet</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29/dist/duckdb-browser-blocking.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29/dist/duckdb-eh.js"></script>
+<script>
+const WORKER = 'https://pulse-data-proxy.yyw18605979375.workers.dev/jobs.parquet';
+let db, conn;
+
+async function initDuckDB() {
+  if (db) return;
+  document.getElementById('result').textContent = '⏳ 加载 DuckDB WASM (5MB)...';
+  try {
+    const JSDELIVR_BUNDLES = {
+      mvp: { mainModule: 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29/dist/duckdb-mvp.wasm', mainWorker: 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29/dist/duckdb-browser-mvp.worker.js' },
+      eh: { mainModule: 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29/dist/duckdb-eh.wasm', mainWorker: 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29/dist/duckdb-browser-eh.worker.js' },
+    };
+    const bundle = await duckdb.selectBundle(JSDELIVR_BUNDLES);
+    const worker = new Worker(bundle.mainWorker);
+    const logger = new duckdb.ConsoleLogger();
+    db = new duckdb.AsyncDuckDB(logger, worker);
+    await db.instantiate(bundle.mainModule);
+    conn = await db.connect();
+    document.getElementById('result').textContent = '✅ DuckDB WASM 就绪。准备查询 Parquet...';
+    await runQuery();
+  } catch(e) {
+    document.getElementById('result').textContent = '❌ ' + e.message;
+  }
+}
+
+async function runQuery() {
+  if (!db) { initDuckDB(); return; }
+  const sql = document.getElementById('sqlInput').value.trim();
+  const resultDiv = document.getElementById('result');
+  resultDiv.textContent = '⏳ 执行远程 Parquet 查询...';
+
+  try {
+    const t0 = performance.now();
+    // DuckDB WASM 通过 HTTP Range 请求直接读 R2 Parquet
+    const q = `SELECT * FROM read_parquet('${WORKER}')`;
+    // 先查看数据
+    if (sql === 'metadata') {
+      const res = await conn.query(`DESCRIBE read_parquet('${WORKER}')`);
+      const elapsed = ((performance.now() - t0) / 1000).toFixed(2);
+      resultDiv.innerHTML = `<span class="text-green-600">✅ 元数据 (${elapsed}s)</span><pre class="mt-2 bg-gray-50 p-3 rounded text-xs overflow-x-auto">${resToString(res)}</pre>`;
+      return;
+    }
+    const res = await conn.query(sql.replace('FROM jobs', `FROM read_parquet('${WORKER}')`).replace('jobs', `read_parquet('${WORKER}')`));
+    const elapsed = ((performance.now() - t0) / 1000).toFixed(2);
+    const rows = res.toArray();
+    resultDiv.innerHTML = `<span class="text-green-600">✅ ${rows.length} 行 / ${elapsed}s</span>${rowsToHtml(res, rows)}`;
+    updateStats();
+  } catch(e) {
+    resultDiv.innerHTML = '❌ ' + e.message;
+  }
+}
+
+function resToString(res) {
+  const cols = res.schema.fields.map(f => f.name);
+  const rows = res.toArray().slice(0, 10);
+  let s = cols.join('\t') + '\n';
+  for (const r of rows) {
+    s += cols.map(c => String(r[c] ?? '')).join('\t') + '\n';
+  }
+  return s;
+}
+
+function rowsToHtml(res, rows) {
+  const cols = res.schema.fields.map(f => f.name);
+  let h = '<div class="mt-2 overflow-x-auto"><table class="w-full text-xs border-collapse"><thead><tr class="bg-gray-100">';
+  for (const c of cols) h += `<th class="p-2 text-left font-medium border">${c}</th>`;
+  h += '</tr></thead><tbody>';
+  for (const r of rows.slice(0, 20)) {
+    h += '<tr class="hover:bg-gray-50">';
+    for (const c of cols) h += `<td class="p-2 border text-gray-600">${r[c] ?? ''}</td>`;
+    h += '</tr>';
+  }
+  if (rows.length > 20) h += `<tr><td colspan="${cols.length}" class="p-2 text-center text-gray-400">...${rows.length - 20} more rows</td></tr>`;
+  h += '</tbody></table></div>';
+  return h;
+}
+
+async function updateStats() {
+  if (!conn) return;
+  try {
+    const r = await conn.query(`SELECT COUNT(*) as n, ROUND(AVG(salary_mid)) as avg_sal FROM read_parquet('${WORKER}')`);
+    const row = r.toArray()[0];
+    document.getElementById('stats').innerHTML = `
+      <div class="bg-white rounded-xl border p-4 text-center"><div class="text-2xl font-bold text-blue-600">${row.n}</div><div class="text-xs text-gray-500">岗位总数</div></div>
+      <div class="bg-white rounded-xl border p-4 text-center"><div class="text-2xl font-bold text-green-600">¥${row.avg_sal}k</div><div class="text-xs text-gray-500">平均薪资</div></div>
+      <div class="bg-white rounded-xl border p-4 text-center"><div class="text-2xl font-bold text-purple-600">零后端</div><div class="text-xs text-gray-500">浏览器 → R2 直连</div></div>
+    `;
+  } catch(e) {}
+}
+
+// 预设查询按钮
+document.addEventListener('DOMContentLoaded', initDuckDB);
+</script>
+</body></html>
