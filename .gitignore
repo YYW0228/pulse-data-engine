@@ -11,6 +11,8 @@ htmlcov/
 data/*.duckdb
 data/backups/
 data/ods_parquet/
+data/ods_iceberg/
+data/test_*
 data/logs/
 data/metrics/
 
