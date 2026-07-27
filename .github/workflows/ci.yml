@@ -13,12 +13,12 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --frozen
-      - run: uv pip install -e .
       - run: uv run ruff check .
       - run: uv run mypy pulse/ --strict
       - run: uv run python -m pytest --cov=pulse --cov-fail-under=65 --cov-report=xml
         env:
           CF_ACCOUNT_ID: ""
           CLOUDFLARE_API_TOKEN: ""
+          PYTHONPATH: ${{ github.workspace }}
       - name: Secret Scan
         uses: gitleaks/gitleaks-action@v2
