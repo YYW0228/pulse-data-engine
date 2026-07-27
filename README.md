@@ -129,6 +129,12 @@ $0 月运营              1075 岗位数据          158 KB Parquet 湖
 
 **pulse-data-engine** — 从爬虫到可视化，一条管道，月运营费 $0。
 
+> **架构迁移说明**: `pulse/dag.py` 中的手写 DAG 已标记为 deprecated。
+> 所有新逻辑应使用 `pulse/assets.py`（Dagster 资产定义）。
+> 详见 [编排架构](pulse/assets.py)。
+
+---
+
 ---
 
 ## 生产部署
