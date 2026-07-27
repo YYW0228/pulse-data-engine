@@ -49,18 +49,28 @@ class RawJobContract(BaseModel):
     @field_validator('salary_min_k', 'salary_max_k', mode='before')
     @classmethod
     def coerce_salary(cls, v: Any) -> Optional[int]:
-        """薪资必须为数字。字符串 '25k'/'25000' 尝试转换，失败则拒绝"""
+        """薪资必须为整数。允许 None 和 0 (未标注)。"""
         if v is None:
             return None
-        if isinstance(v, (int, float)) and v > 0:
-            return int(v)
+        if isinstance(v, (int, float)):
+            val = int(v)
+            if val == 0:
+                return 0  # 未标注薪资
+            if 10 <= val <= 1000:
+                return val  # 单位 k/月
+            if val > 1000:
+                # 可能是元/月而非 k/月, 尝试归一化
+                normalized = val // 1000
+                if 10 <= normalized <= 1000:
+                    return normalized
+            return val  # 保留原始值
         if isinstance(v, str):
-            # 尝试解析 "25k", "25K", "25000"
             cleaned = v.strip().lower().replace('k', '000').replace(',', '')
             try:
                 val = int(float(cleaned))
-                if val > 0 and val < 1000000:
-                    return val // 1000 if val > 1000 else val
+                if val == 0:
+                    return 0
+                return val // 1000 if val > 1000 else val
             except ValueError:
                 pass
             raise ValueError(f"薪资格式无法解析: {v}")
