@@ -27,11 +27,12 @@ dag = DAG(name="pulse_etl")
 
 @dag.task(name="fetch_validate", depends_on=[])
 def task_fetch_validate() -> None:
-    """采集 → Data Contracts 校验 → ODS"""
+    """多源采集 → Data Contracts 校验 → ODS"""
     from pulse.extractors import fetch_all as fetch_remotive
+    from pulse.extractors.jobicy import fetch_all as fetch_jobicy
 
-    raw = fetch_remotive(limit_per_category=5)
-    logger.info(f"采集: {len(raw)} 条")
+    raw = fetch_remotive(limit_per_category=5) + fetch_jobicy(limit_per_geo=15)
+    logger.info(f"采集: {len(raw)} 条 (Remotive + Jobicy)")
 
     p = Pipeline()
     p.init_schema()
@@ -89,7 +90,7 @@ def task_export_iceberg() -> None:
     p.init_schema()
     r = p.export_to_iceberg()
     snaps = len(r.get("snapshots", []))
-    logger.info(f"Iceberg: {r['data_files']} 文件, {r['total_bytes']/1024:.1f} KB, {snaps} 快照")
+    logger.info(f"Iceberg: {r['data_files']} 文件, {r['total_bytes'] / 1024:.1f} KB, {snaps} 快照")
     p.close()
 
 

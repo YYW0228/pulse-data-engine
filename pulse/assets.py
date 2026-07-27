@@ -14,6 +14,7 @@ pulse/assets.py — Dagster 资产定义
   uv run dagster dev -f pulse/assets.py   # 启动 Dagster UI
   uv run dagster job execute -f pulse/assets.py -j pulse_etl_job  # CLI 执行
 """
+
 import logging
 
 from dagster import Definitions, OpExecutionContext, asset
@@ -27,10 +28,12 @@ ICEBERG_PATH = "data/ods_iceberg"
 def _get_pipeline():
     """延迟创建 Pipeline 实例 (避免 import 时初始化 DuckDB)"""
     from pulse.pipeline import Pipeline
+
     return Pipeline(db_path=DB_PATH, iceberg_path=ICEBERG_PATH)
 
 
 # ── ODS ──────────────────────────────────────────────────────────────
+
 
 @asset(
     name="ods_raw_jobs",
@@ -43,8 +46,10 @@ def ods_raw_jobs(context: OpExecutionContext) -> str:
     p.init_schema()
 
     from pulse.extractors import fetch_all as fetch_remotive
-    raw = fetch_remotive(limit_per_category=5)
-    context.log.info(f"采集: {len(raw)} 条")
+    from pulse.extractors.jobicy import fetch_all as fetch_jobicy
+
+    raw = fetch_remotive(limit_per_category=5) + fetch_jobicy(limit_per_geo=15)
+    context.log.info(f"采集: {len(raw)} 条 (Remotive + Jobicy)")
 
     # 合并已有静态数据
     existing = p.con.execute("SELECT * FROM raw_jobs WHERE job_title IS NOT NULL").fetchdf()
@@ -59,7 +64,9 @@ def ods_raw_jobs(context: OpExecutionContext) -> str:
 
     if result["passed"]:
         stats = p.merge_into_ods(result["passed"])
-        context.log.info(f"ODS: +{stats['new']}新 / {stats['updated']}更新 / {stats['unchanged']}不变")
+        context.log.info(
+            f"ODS: +{stats['new']}新 / {stats['updated']}更新 / {stats['unchanged']}不变"
+        )
 
     v = p.verify()
     context.log.info(f"ODS={v['ods_latest']} DLQ={v['dlq']} 一致={v['consistent']}")
@@ -68,6 +75,7 @@ def ods_raw_jobs(context: OpExecutionContext) -> str:
 
 
 # ── DWD ──────────────────────────────────────────────────────────────
+
 
 @asset(
     name="dwd_cleaned_jobs",
@@ -85,6 +93,7 @@ def dwd_cleaned_jobs(context: OpExecutionContext) -> str:
 
 
 # ── DWS ──────────────────────────────────────────────────────────────
+
 
 @asset(
     name="dws_skill_agg",
@@ -112,15 +121,14 @@ def dws_city_agg(context: OpExecutionContext) -> str:
     p = _get_pipeline()
     p.init_schema()
     p.refresh_dws()
-    rows = p.con.execute(
-        "SELECT COUNT(*) FROM dws_city_agg"
-    ).fetchone()[0] or 0
+    rows = p.con.execute("SELECT COUNT(*) FROM dws_city_agg").fetchone()[0] or 0
     context.log.info(f"DWS 城市: {rows} 个城市")
     p.close()
     return f"cities={rows}"
 
 
 # ── 导出 ─────────────────────────────────────────────────────────────
+
 
 @asset(
     name="parquet_export",
@@ -132,7 +140,7 @@ def parquet_export(context: OpExecutionContext) -> str:
     p = _get_pipeline()
     p.init_schema()
     r = p.export_to_parquet()
-    context.log.info(f"Parquet: {r['files']} 文件, {r['bytes']/1024:.1f} KB")
+    context.log.info(f"Parquet: {r['files']} 文件, {r['bytes'] / 1024:.1f} KB")
     p.close()
     return f"files={r['files']}"
 
@@ -148,12 +156,15 @@ def iceberg_export(context: OpExecutionContext) -> str:
     p.init_schema()
     r = p.export_to_iceberg()
     snaps = len(r.get("snapshots", []))
-    context.log.info(f"Iceberg: {r['data_files']} 文件, {r['total_bytes']/1024:.1f} KB, {snaps} 快照")
+    context.log.info(
+        f"Iceberg: {r['data_files']} 文件, {r['total_bytes'] / 1024:.1f} KB, {snaps} 快照"
+    )
     p.close()
     return f"snapshots={snaps}"
 
 
 # ── 质量 ─────────────────────────────────────────────────────────────
+
 
 @asset(
     name="quality_report",
@@ -184,6 +195,7 @@ def quality_report(context: OpExecutionContext) -> dict:
 
     # DLQ
     import duckdb
+
     con = duckdb.connect(DB_PATH)
     dlq = con.execute("SELECT COUNT(*) FROM dlq_jobs").fetchone()[0] or 0
     con.close()
@@ -194,6 +206,7 @@ def quality_report(context: OpExecutionContext) -> dict:
 
 
 # ── 备份 ─────────────────────────────────────────────────────────────
+
 
 @asset(
     name="backup",
