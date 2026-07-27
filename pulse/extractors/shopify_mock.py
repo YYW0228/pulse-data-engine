@@ -2,8 +2,8 @@
 
 模拟 Shopify API 返回, 包含正常数据 + 脏数据 (测试 DLQ + Circuit Breaker)
 """
-import random
 import logging
+import random
 
 logger = logging.getLogger("pulse.extractor.shopify")
 
@@ -50,12 +50,12 @@ def _generate(count: int = 100, dirty_ratio: float = 0.05) -> list[dict]:
 
     # 生成正常商品 (循环样本 + 随机变体)
     for i in range(clean_count):
-        base = random.choice(PRODUCTS)
-        variant = random.randint(1, 1000)
+        base: dict = random.choice(PRODUCTS)
+        _adj: int = random.choice([0, -10, 10, -20, 20])
         results.append({
-            "url": f"https://shopify.com/products/{base['brand'].lower()}-{variant}",
-            "product_title": f"{base['title']} ({variant})",
-            "price": base["price"] + random.choice([0, -10, 10, -20, 20]),
+            "url": f"https://shopify.com/products/{base['brand'].lower()}-{_adj}",
+            "product_title": f"{base['title']} ({_adj})",
+            "price": base["price"] + _adj,
             "original_price": base["price"] * 2,
             "stock": max(0, base["stock"] + random.randint(-100, 100)),
             "category": base["category"],

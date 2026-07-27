@@ -225,6 +225,22 @@ def backup(context: OpExecutionContext) -> str:
     return "ok"
 
 
+# ── Job + Schedule ──────────────────────────────────────────────────
+
+from dagster import AssetSelection, ScheduleDefinition, define_asset_job
+
+pulse_etl_job = define_asset_job(
+    name="pulse_etl_job",
+    selection=AssetSelection.all(),
+)
+
+# 每 6 小时: UTC 02:00, 08:00, 14:00, 20:00
+pulse_schedule = ScheduleDefinition(
+    name="pulse_etl_schedule",
+    job=pulse_etl_job,
+    cron_schedule="0 2,8,14,20 * * *",
+)
+
 # ── Definitions ──────────────────────────────────────────────────────
 
 defs = Definitions(
@@ -238,4 +254,5 @@ defs = Definitions(
         quality_report,
         backup,
     ],
+    schedules=[pulse_schedule],
 )

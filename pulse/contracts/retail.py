@@ -1,7 +1,8 @@
 """pulse/contracts/retail.py — 零售商品数据契约 (ProductContract)"""
 
-from pydantic import BaseModel, Field, field_validator
 from typing import Any
+
+from pydantic import BaseModel, Field, field_validator
 
 
 class ProductContract(BaseModel):

@@ -1,0 +1,3 @@
+# Dagster workspace — 加载 Pulse 资产定义
+load_from:
+  - python_file: pulse/assets.py

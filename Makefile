@@ -5,6 +5,7 @@
 #   make ci         # CI 门禁全量检查
 #   make run        # 单次运行管道
 #   make deploy     # 生产部署 (GitHub Actions dispatch)
+#   make up         # 启动全部服务
 #   make clean      # 清理数据
 
 SHELL := /bin/bash
@@ -30,7 +31,7 @@ deploy-run:
 production-report:
 	$(UV) python -m scripts.run_production --report-only
 
-# ── Dashboard + WASM 服务 ──────────────────────────────────────────
+# ── 服务 ──────────────────────────────────────────────────────────
 serve-dashboard:
 	$(UV) streamlit run serve.py
 
@@ -40,24 +41,42 @@ serve-wasm:
 serve-metrics:
 	$(UV) python -m pulse.metrics_server
 
-# ── 全量部署 ──────────────────────────────────────────────────────────
+# ── Dagster 编排 ─────────────────────────────────────────────────────
+dagster-ui:
+	$(UV) dagster dev -f pulse/assets.py
+
+dagster-daemon:
+	export DAGSTER_HOME=$${DAGSTER_HOME:-/root/.dagster} && \
+	mkdir -p $$DAGSTER_HOME && \
+	$(UV) dagster-daemon run -w workspace.yaml
+
+dagster-schedule-start:
+	export DAGSTER_HOME=$${DAGSTER_HOME:-/root/.dagster} && \
+	$(UV) dagster schedule start pulse_etl_schedule -f pulse/assets.py
+
+dagster-run:
+	export DAGSTER_HOME=$${DAGSTER_HOME:-/root/.dagster} && \
+	$(UV) dagster job execute -f pulse/assets.py -j pulse_etl_job
+
+# ── 全量部署 (所有服务 + 调度) ───────────────────────────────────────
 up:
 	@echo "Starting all services..."
 	$(UV) python -m pulse.metrics_server &
 	$(UV) python -m pulse.wasm_server &
 	$(UV) streamlit run serve.py &
-	@echo "Services starting..."
-	@sleep 2
+	$(UV) dagster-daemon run -w workspace.yaml &
 	@echo "  📊 Metrics:   http://localhost:9464/metrics"
 	@echo "  🦆 WASM SQL:  http://localhost:8000/wasm"
 	@echo "  🚀 Dashboard: http://localhost:8501"
+	@echo "  🎬 Dagster:   http://localhost:3000 (dagster dev)"
 
-# ── Dagster ───────────────────────────────────────────────────────────
-dagster-ui:
-	$(UV) dagster dev -f pulse/assets.py
-
-dagster-run:
-	$(UV) python -c "from dagster import DagsterInstance, materialize; from pulse.assets import *; materialize([ods_raw_jobs, dwd_cleaned_jobs, dws_skill_agg, dws_city_agg, parquet_export, iceberg_export, quality_report, backup], resources={}, instance=DagsterInstance.ephemeral())"
+# ── 停服务 ────────────────────────────────────────────────────────────
+down:
+	-pkill -f pulse.metrics_server 2>/dev/null
+	-pkill -f pulse.wasm_server 2>/dev/null
+	-pkill -f streamlit 2>/dev/null
+	-pkill -f dagster-daemon 2>/dev/null
+	@echo "Services stopped"
 
 # ── 清理 ────────────────────────────────────────────────────────────
 clean:
