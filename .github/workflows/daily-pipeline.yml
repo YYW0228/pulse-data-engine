@@ -40,6 +40,8 @@ jobs:
           if [ -n "${{ inputs.run_id }}" ]; then
             OPTS="$OPTS --run-id ${{ inputs.run_id }}"
           fi
+          uv sync --frozen
+          uv pip install -e .
           uv run python -m scripts.run_production $OPTS 2>&1 | tee pipeline_output.json
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
