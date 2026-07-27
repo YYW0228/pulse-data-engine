@@ -5,6 +5,7 @@ pulse/runner.py — DAG 任务定义 + 7x24 运行入口
   python -m pulse.runner                    # 单次运行
   python -m pulse.runner --schedule hourly  # 持续调度
 """
+
 import logging, time, sys
 from datetime import datetime
 from pulse.dag import DAG
@@ -28,10 +29,12 @@ def task_validate():
     p = Pipeline()
     p.init_schema()
     raw = p.con.execute("SELECT * FROM raw_jobs WHERE job_title IS NOT NULL").fetchdf()
-    records = raw.to_dict('records')
+    records = raw.to_dict("records")
     logger.info(f"读取 {len(records)} 条原始数据")
     result = p.validate_and_route(records)
-    logger.info(f"校验: {result['summary']['passed']}通过 / {result['summary']['failed']}失败")
+    logger.info(
+        f"校验: {result['summary']['passed']}通过 / {result['summary']['failed']}失败"
+    )
     # 将通过的数据暂存到 pipeline 上下文
     p.close()
     return result
@@ -43,12 +46,14 @@ def task_merge_ods():
     p = Pipeline()
     p.init_schema()
     raw = p.con.execute("SELECT * FROM raw_jobs WHERE job_title IS NOT NULL").fetchdf()
-    records = raw.to_dict('records')
+    records = raw.to_dict("records")
     # 先校验
     result = p.validate_and_route(records)
-    if result['passed']:
-        stats = p.merge_into_ods(result['passed'])
-        logger.info(f"ODS: +{stats['new']}新 / {stats['updated']}更新 / {stats['unchanged']}不变")
+    if result["passed"]:
+        stats = p.merge_into_ods(result["passed"])
+        logger.info(
+            f"ODS: +{stats['new']}新 / {stats['updated']}更新 / {stats['unchanged']}不变"
+        )
     p.close()
 
 
@@ -79,7 +84,7 @@ def task_export_parquet():
     p = Pipeline()
     p.init_schema()
     r = p.export_to_parquet()
-    logger.info(f"Parquet: {r['files']} 文件, {r['bytes']/1024:.1f} KB")
+    logger.info(f"Parquet: {r['files']} 文件, {r['bytes'] / 1024:.1f} KB")
     p.close()
 
 
@@ -91,7 +96,7 @@ def run_once():
     result = dag.run()
     s = result["summary"]
     logger.info(f"结果: {s['success']}成功 / {s['failed']}失败 / {s['skipped']}跳过")
-    if s['failed'] > 0:
+    if s["failed"] > 0:
         logger.error("DAG 存在失败任务")
     return result
 

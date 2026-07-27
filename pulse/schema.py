@@ -4,6 +4,7 @@ pulse/schema.py — 数据契约 (Data Contracts as Code)
 每一条数据在进入 ODS 之前必须通过 Pydantic 校验。
 校验失败 → SCHEMA_VIOLATION → 死信队列 (DLQ)。
 """
+
 from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Optional, Any
 from enum import Enum
@@ -36,8 +37,12 @@ class RawJobContract(BaseModel):
     # ── 可选但类型必须正确 ──
     company_name: Optional[str] = Field(None, max_length=200)
     city: Optional[str] = Field(None, max_length=50)
-    salary_min_k: Optional[int] = Field(None, ge=0, le=1000, description="最低薪资 (k/月)")
-    salary_max_k: Optional[int] = Field(None, ge=0, le=1000, description="最高薪资 (k/月)")
+    salary_min_k: Optional[int] = Field(
+        None, ge=0, le=1000, description="最低薪资 (k/月)"
+    )
+    salary_max_k: Optional[int] = Field(
+        None, ge=0, le=1000, description="最高薪资 (k/月)"
+    )
     education: Optional[str] = Field(None, max_length=20)
     experience: Optional[str] = Field(None, max_length=20)
     keyword: Optional[str] = Field(None, max_length=100)
@@ -46,7 +51,7 @@ class RawJobContract(BaseModel):
 
     # ── 自定义校验器 ──
 
-    @field_validator('salary_min_k', 'salary_max_k', mode='before')
+    @field_validator("salary_min_k", "salary_max_k", mode="before")
     @classmethod
     def coerce_salary(cls, v: Any) -> Optional[int]:
         """薪资必须为整数。允许 None 和 0 (未标注)。"""
@@ -65,7 +70,7 @@ class RawJobContract(BaseModel):
                     return normalized
             return val  # 保留原始值
         if isinstance(v, str):
-            cleaned = v.strip().lower().replace('k', '000').replace(',', '')
+            cleaned = v.strip().lower().replace("k", "000").replace(",", "")
             try:
                 val = int(float(cleaned))
                 if val == 0:
@@ -76,10 +81,10 @@ class RawJobContract(BaseModel):
             raise ValueError(f"薪资格式无法解析: {v}")
         raise ValueError(f"薪资类型错误: {type(v).__name__}")
 
-    @field_validator('experience', mode='before')
+    @field_validator("experience", mode="before")
     @classmethod
     def normalize_experience(cls, v: Any) -> Optional[str]:
-        if v is None or v == '':
+        if v is None or v == "":
             return None
         valid_levels = {e.value for e in ExperienceLevel}
         if v in valid_levels:
@@ -87,28 +92,36 @@ class RawJobContract(BaseModel):
         # 模糊匹配
         v_lower = v.strip().lower()
         mapping = {
-            '应届': ExperienceLevel.ENTRY, 'entry': ExperienceLevel.ENTRY,
-            '1年': ExperienceLevel.JUNIOR, '1-3': ExperienceLevel.JUNIOR,
-            '3年': ExperienceLevel.MID, '3-5': ExperienceLevel.MID,
-            '5年': ExperienceLevel.SENIOR, '5-10': ExperienceLevel.SENIOR,
-            '10年': ExperienceLevel.EXPERT, '10以上': ExperienceLevel.EXPERT,
+            "应届": ExperienceLevel.ENTRY,
+            "entry": ExperienceLevel.ENTRY,
+            "1年": ExperienceLevel.JUNIOR,
+            "1-3": ExperienceLevel.JUNIOR,
+            "3年": ExperienceLevel.MID,
+            "3-5": ExperienceLevel.MID,
+            "5年": ExperienceLevel.SENIOR,
+            "5-10": ExperienceLevel.SENIOR,
+            "10年": ExperienceLevel.EXPERT,
+            "10以上": ExperienceLevel.EXPERT,
         }
         for key, level in mapping.items():
             if key in v_lower:
                 return level.value
         return v  # 保留原始值但不拒绝
 
-    @model_validator(mode='after')
+    @model_validator(mode="after")
     def check_salary_consistency(self):
         """薪资区间校验: max >= min"""
         if self.salary_min_k is not None and self.salary_max_k is not None:
             if self.salary_max_k < self.salary_min_k:
-                raise ValueError(f"薪资区间异常: max({self.salary_max_k}) < min({self.salary_min_k})")
+                raise ValueError(
+                    f"薪资区间异常: max({self.salary_max_k}) < min({self.salary_min_k})"
+                )
         return self
 
 
 class ValidationResult(BaseModel):
     """单条数据的校验结果"""
+
     passed: bool
     record: dict = {}
     errors: list[dict] = []
@@ -117,6 +130,7 @@ class ValidationResult(BaseModel):
 
 class BatchValidationSummary(BaseModel):
     """批次校验汇总"""
+
     total: int
     passed: int
     failed: int

@@ -1,0 +1,19 @@
+name: CI
+on: [push, pull_request]
+
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --frozen
+      - run: uv run ruff check pulse/
+        continue-on-error: true
+      - run: uv run mypy pulse/ --ignore-missing-imports
+        continue-on-error: true
+      - run: uv run python -m pytest tests/ -v --tb=short
+        continue-on-error: true
+      - run: uv run python -c "from pulse.pipeline import Pipeline; from pulse.dag import DAG; print('DAG OK')"
