@@ -1,0 +1,10 @@
+[project]
+name = "pulse-data-engine"
+version = "0.1.0"
+description = "独立数据引擎 — ODS/DWD/DWS + SCD Type 2 + DLQ + Parquet"
+requires-python = ">=3.10"
+dependencies = [
+    "duckdb>=1.5.5",
+    "httpx>=0.28.1",
+    "pydantic>=2.13.4",
+]
