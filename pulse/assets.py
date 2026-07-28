@@ -52,11 +52,14 @@ def ods_raw_jobs(context: OpExecutionContext) -> str:
     context.log.info(f"采集: {len(raw)} 条 (Remotive + Jobicy)")
 
     # 合并已有静态数据
-    existing = p.con.execute("SELECT * FROM raw_jobs WHERE job_title IS NOT NULL").fetchdf()
-    if len(existing) > 0:
-        r = p.validate_and_route(existing.to_dict("records"))
-        if r["passed"]:
-            p.merge_into_ods(r["passed"])
+    try:
+        existing = p.con.execute("SELECT * FROM raw_jobs WHERE job_title IS NOT NULL").fetchdf()
+        if len(existing) > 0:
+            r = p.validate_and_route(existing.to_dict("records"))
+            if r["passed"]:
+                p.merge_into_ods(r["passed"])
+    except Exception:
+        pass  # raw_jobs 表可能不存在（CI 新环境）
 
     # 新数据
     result = p.validate_and_route(raw)

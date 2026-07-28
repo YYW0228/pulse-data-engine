@@ -36,12 +36,15 @@ def task_fetch_validate() -> None:
 
     p = Pipeline()
     p.init_schema()
-    # 先合并已有的 raw_jobs (已有静态数据)
-    existing = p.con.execute("SELECT * FROM raw_jobs WHERE job_title IS NOT NULL").fetchdf()
-    if len(existing) > 0:
-        existing_result = p.validate_and_route(existing.to_dict("records"))
-        if existing_result["passed"]:
-            p.merge_into_ods(existing_result["passed"])
+    # 合并已有静态数据
+    try:
+        existing = p.con.execute("SELECT * FROM raw_jobs WHERE job_title IS NOT NULL").fetchdf()
+        if len(existing) > 0:
+            existing_result = p.validate_and_route(existing.to_dict("records"))
+            if existing_result["passed"]:
+                p.merge_into_ods(existing_result["passed"])
+    except Exception:
+        pass  # raw_jobs 表可能不存在（CI 新环境）
 
     # 再合并新采集的数据
     result = p.validate_and_route(raw)

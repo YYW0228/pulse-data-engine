@@ -97,7 +97,7 @@ class ParquetHTTPHandler(SimpleHTTPRequestHandler):
 
         # ── Static files (wasm_query.html etc) ──────────────────
         if parsed == "/" or parsed == "/wasm":
-            parsed = "/pulse/static/wasm_query.html"
+            self.path = "/pulse/static/wasm_query.html"
         super().do_GET()
 
     def _json_response(self, data: dict, status: int = 200) -> None:
