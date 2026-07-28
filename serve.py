@@ -50,10 +50,23 @@ if con is None:
     st.stop()
 
 # 防 shopify 污染
-SF = "source NOT IN ('shopify')"
+# ── 来源选择器 ──────────────────────────────────────────────────────
+view_mode = st.radio(
+    "数据范围",
+    ["🌍 全球远程 (美元)", "🇨🇳 国内市场", "🌐 全部数据"],
+    horizontal=True,
+    index=0,
+)
+source_filter_map = {
+    "🌍 全球远程 (美元)": "source IN ('tavily', 'remotive', 'firecrawl', 'jobicy')",
+    "🇨🇳 国内市场": "source = 'chinese_market'",
+    "🌐 全部数据": "1=1",
+}
+SF = source_filter_map[view_mode]
+
+st.markdown("---")
 
 # ── Row 1: Hero 指标 ─────────────────────────────────────────────────
-st.markdown("---")
 
 ods_total = int(con.execute(f"SELECT COUNT(*) FROM ods_raw_jobs WHERE is_latest=TRUE AND {SF}").fetchone()[0] or 0)
 dwd_total = int(con.execute("SELECT COUNT(*) FROM dwd_cleaned_jobs").fetchone()[0] or 0)

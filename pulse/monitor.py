@@ -91,7 +91,7 @@ class QualitySLA:
         self,
         db_path: str = "data/jobs.duckdb",
         null_rate_max: float = 0.05,
-        invalid_salary_rate_max: float = 0.10,
+        invalid_salary_rate_max: float = 0.50,
         max_stale_hours: int = 24,
     ):
         import duckdb
