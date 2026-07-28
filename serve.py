@@ -179,6 +179,7 @@ else:
 
 # ── 行 3: 城市分布 ──────────────────────────────────────────────────
 st.subheader("📍 城市分布")
+st.caption(f"当前领域: {domain} (DWS 聚合跨所有领域)")
 dwc = safe_query(
     con,
     """
@@ -276,9 +277,10 @@ except Exception as e:
 st.subheader("🌐 多源数据分布")
 src_df = safe_query(
     con,
-    """
+    f"""
     SELECT source, COUNT(*) as count
     FROM ods_raw_jobs
+    WHERE source IN ({source_filter})
     GROUP BY source
     ORDER BY count DESC
 """,
