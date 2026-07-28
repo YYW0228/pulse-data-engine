@@ -247,7 +247,6 @@ class ScraplingAdapter:
 
     def _send_cdp(self, method: str, params: dict | None = None, sid: str | None = None) -> dict:
         """发送 CDP 命令并等待响应"""
-        import websocket
 
         self._mid = getattr(self, "_mid", 0) + 1
         msg = {"id": self._mid, "method": method, "params": params or {}}

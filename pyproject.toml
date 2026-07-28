@@ -40,7 +40,8 @@ ignore = ["BLE001"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["F401", "F841"]
-"scripts/*" = ["BLE001"]
+"scripts/*" = ["BLE001", "E722", "F541", "PLW1510", "S110", "RUF059"]
+"pulse/fetchers/scrapling_fetcher.py" = ["S110", "PLW1510"]
 "pulse/runner.py" = ["S110"]
 "pulse/assets.py" = ["S110"]
 

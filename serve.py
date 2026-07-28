@@ -109,7 +109,7 @@ view_mode = st.radio(
 )
 source_filter_map = {
     "🌍 全球远程 (美元)": "source IN ('tavily', 'remotive', 'firecrawl', 'jobicy')",
-    "🇨🇳 国内市场": "source = 'chinese_market'",
+    "🇨🇳 国内市场": "source IN ('chinese_market', 'boss')",
     "🌐 全部数据": "1=1",
 }
 SF = source_filter_map[view_mode]

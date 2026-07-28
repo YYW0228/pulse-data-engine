@@ -11,8 +11,8 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from pulse.pipeline import Pipeline
 from pulse.logging_config import setup_logging
+from pulse.pipeline import Pipeline
 
 setup_logging()
 logger = logging.getLogger("import_boss")
