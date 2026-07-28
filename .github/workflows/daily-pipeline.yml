@@ -41,12 +41,12 @@ jobs:
             OPTS="$OPTS --run-id ${{ inputs.run_id }}"
           fi
           uv sync --frozen
-          uv pip install -e .
           uv run python -m scripts.run_production $OPTS 2>&1 | tee pipeline_output.json
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          PYTHONPATH: ${{ github.workspace }}
 
       - name: 解析运行结果
         id: parse
