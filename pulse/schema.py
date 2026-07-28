@@ -38,8 +38,8 @@ class RawJobContract(BaseModel):
     # ── 可选但类型必须正确 ──
     company_name: str | None = Field(None, max_length=200)
     city: str | None = Field(None, max_length=200)
-    salary_min_k: int | None = Field(None, ge=0, le=2000, description="最低薪资 (k/月)")
-    salary_max_k: int | None = Field(None, ge=0, le=2000, description="最高薪资 (k/月)")
+    salary_min_k: int | None = Field(None, ge=0, le=5000, description="最低薪资 (k/月)")
+    salary_max_k: int | None = Field(None, ge=0, le=5000, description="最高薪资 (k/月)")
     education: str | None = Field(None, max_length=20)
     experience: str | None = Field(None, max_length=20)
     keyword: str | None = Field(None, max_length=100)

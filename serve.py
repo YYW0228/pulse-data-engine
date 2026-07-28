@@ -232,7 +232,61 @@ try:
 except Exception as e:
     st.warning(f"质量 SLA 检查失败: {e}")
 
-# ── 行 6: Parquet 湖 ────────────────────────────────────────────────
+# ── 行 6: 多源分析 ──────────────────────────────────────────────────
+st.subheader("🌐 多源数据分布")
+src_df = safe_query(
+    con,
+    """
+    SELECT source, COUNT(*) as count
+    FROM ods_raw_jobs
+    GROUP BY source
+    ORDER BY count DESC
+""",
+)
+if not src_df.empty:
+    col1, col2 = st.columns([2, 3])
+    with col1:
+        st.dataframe(src_df, use_container_width=True, hide_index=True)
+    with col2:
+        st.bar_chart(src_df.set_index("source"), height=300)
+else:
+    st.info("暂无数据")
+
+# ── 行 7: Iceberg 快照浏览器 ────────────────────────────────────────
+st.subheader("🧊 Iceberg 时间旅行")
+try:
+    from pulse.pipeline import Pipeline
+
+    p = Pipeline()
+    snaps = p.list_iceberg_snapshots()
+    p.close()
+
+    if snaps:
+        st.caption(f"可用快照: {len(snaps)} 个")
+        options = {s["run_id"]: f"{s['run_id']} @ {str(s['timestamp'])[:19]}" for s in snaps}
+        selected = st.selectbox("选择快照进行 time travel 查询", options.keys(), format_func=lambda k: options[k])
+
+        if selected:
+            p2 = Pipeline()
+            try:
+                rows = p2.iceberg_query_at(selected, "SELECT COUNT(*) FROM ods_raw_at")
+                count = rows[0][0] if rows else 0
+                st.metric(f"快照 {selected[:20]}... 行数", f"{count} 行")
+
+                # 显示预览
+                preview = p2.iceberg_query_at(selected, "SELECT * FROM ods_raw_at LIMIT 5")
+                if preview:
+                    cols = list(preview[0].keys()) if hasattr(preview[0], 'keys') else list(range(len(preview[0])))
+                    st.dataframe(pd.DataFrame(preview, columns=cols))
+            except Exception as e:
+                st.warning(f"查询失败: {e}")
+            p2.close()
+    else:
+        st.info("无 Iceberg 快照。先运行管道生成: `uv run python -m pulse.runner`")
+except Exception as e:
+    st.warning(f"Iceberg 不可用: {e}")
+
+# ── 行 8: Parquet 湖 ────────────────────────────────────────────────
 st.subheader("🗄️ Parquet 冷存储")
 pq = Path(PARQUET_PATH)
 if pq.exists():
