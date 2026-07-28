@@ -113,6 +113,17 @@ st.sidebar.metric("DLQ 死信队列", report.get("dlq", "?"))
 consistent = report.get("consistent", False)
 st.sidebar.metric("对账一致", "✅" if consistent else "❌", delta_color="off")
 st.sidebar.markdown("---")
+
+# 领域过滤器
+DOMAIN_SOURCES = {
+    "招聘": ["tavily", "remotive", "firecrawl", "jobicy"],
+    "零售 (Mock)": ["shopify"],
+}
+domain = st.sidebar.radio("领域", list(DOMAIN_SOURCES.keys()), index=0)
+selected_sources = DOMAIN_SOURCES[domain]
+source_filter = ",".join(f"'{s}'" for s in selected_sources)
+
+st.sidebar.markdown("---")
 st.sidebar.caption(f"最后运行: {last_log_time()}")
 st.sidebar.markdown("---")
 st.sidebar.caption("pulse-data-engine v0.1.0")
