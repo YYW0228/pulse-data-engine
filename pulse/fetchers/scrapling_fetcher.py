@@ -198,19 +198,84 @@ class ScraplingAdapter:
             latency_ms=(time.time() - t0) * 1000,
         )
 
-    # ── CDP 后端 (Brave/Chrome + Playwright) ──────────────────────────
-    _cdp_context = None
-    _cdp_page = None
+    # ── CDP 后端 (Raw WebSocket, 无 Playwright) ────────────────────────
+    _cdp_ws = None
+    _cdp_sid = None  # page session ID
+    _cdp_target_id = None
+    _cdp_brave_proc = None
 
-    def _ensure_browser(self):
-        """启动 Brave 实例 (用真实用户数据目录的复制)
-        
-        Playwright + Brave CDP 不兼容 (Browser.setDownloadBehavior).
-        改用 launch_persistent_context + 复制的用户数据目录.
-        """
-        if self._cdp_context is not None:
-            return  # 已有会话
-        
+    # XHR-in-page 模板 — 从 boss-zhipin-scraper 吞噬
+    FETCH_API_JS = """(function(){
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', '__API_URL__', false);
+    xhr.send();
+    if (xhr.status !== 200) return JSON.stringify({error: xhr.status});
+    var data = JSON.parse(xhr.responseText);
+    var jobs = (data.zpData || {}).jobList || [];
+    var results = jobs.map(function(j) {
+        var s = j.salaryDesc || '';
+        var sm = s.match(/(\\d+)(?:K|k)?\\s*[-~–至]\\s*(\\d+)(?:K|k)?/);
+        var minK = sm ? parseInt(sm[1]) : null;
+        var maxK = sm ? parseInt(sm[2]) : null;
+        if (!sm) {
+            var sv = s.match(/(\\d+)(?:K|k)/);
+            if (sv) { minK = maxK = parseInt(sv[1]); }
+        }
+        if (minK > 1000) minK = Math.round(minK/1000);
+        if (maxK > 1000) maxK = Math.round(maxK/1000);
+        return {
+            url: 'https://www.zhipin.com/job_detail/' + (j.encryptJobId || '') + '.html',
+            job_title: j.jobName || '',
+            company_name: j.brandName || '',
+            city: j.cityName || '',
+            salary_min_k: minK,
+            salary_max_k: maxK,
+            education: j.jobDegree || '',
+            experience: j.jobExperience || '',
+            keyword: '__KEYWORD__',
+            source: 'boss',
+            domain: 'zhipin.com',
+        };
+    });
+    return JSON.stringify(results);
+    })()"""
+
+    BACKGROUND_VISIBILITY_JS = (
+        "Object.defineProperty(document, 'hidden', {get: () => false});"
+        "Object.defineProperty(document, 'visibilityState', {get: () => 'visible'});"
+    )
+
+    def _send_cdp(self, method: str, params: dict | None = None, sid: str | None = None) -> dict:
+        """发送 CDP 命令并等待响应"""
+        import websocket
+
+        self._mid = getattr(self, "_mid", 0) + 1
+        msg = {"id": self._mid, "method": method, "params": params or {}}
+        if sid:
+            msg["sessionId"] = sid
+        self._cdp_ws.send(json.dumps(msg))
+
+        while True:
+            raw = self._cdp_ws.recv()
+            try:
+                r = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if r.get("id") == self._mid:
+                return r
+
+    def _eval_js(self, js: str, sid: str) -> str | None:
+        """在页面中执行 JS, 返回 result.value"""
+        r = self._send_cdp("Runtime.evaluate", {
+            "expression": js, "returnByValue": True,
+        }, sid)
+        return r.get("result", {}).get("result", {}).get("value")
+
+    def _ensure_cdp(self):
+        """启动 Brave + 建立 CDP WebSocket 连接"""
+        if self._cdp_ws is not None:
+            return  # 已有连接
+
         if not self._brave_path:
             raise FileNotFoundError("未找到 Brave 或 Chrome, CDP 模式不可用")
 
@@ -224,68 +289,83 @@ class ScraplingAdapter:
             )
             time.sleep(2)
 
-        # 复制用户数据目录 (避免锁冲突)
-        import shutil
-        src_dir = Path.home() / "Library/Application Support/BraveSoftware/Brave-Browser"
-        tmp_dir = Path("/tmp/boss_profile_copy")
-        if tmp_dir.exists():
-            shutil.rmtree(tmp_dir)
-        # 复制关键的认证和存储数据
-        _copied = 0
-        for sub in [
-            "Default/Cookies", "Default/Cookies-journal",
-            "Default/Local Storage", "Default/Session Storage",
-            "Default/IndexedDB",
-            "Default/Service Worker/CacheStorage",
-        ]:
-            s = src_dir / sub
-            d = tmp_dir / sub
-            if s.exists():
-                d.parent.mkdir(parents=True, exist_ok=True)
-                if s.is_file():
-                    shutil.copy2(s, d)
-                    _copied += 1
-                else:
-                    shutil.copytree(s, d, dirs_exist_ok=True)
-                    _copied += 1
-        logger.info("用户数据已复制 (%d 项) → %s", _copied, tmp_dir)
+        # 持久化 Chrome 数据目录
+        profile_dir = Path.home() / ".pulse" / "boss_profile"
+        profile_dir.mkdir(parents=True, exist_ok=True)
 
-        from playwright.sync_api import sync_playwright
-
-        self._pw_mgr = sync_playwright()
-        self._pw = self._pw_mgr.__enter__()
-        context = self._pw.chromium.launch_persistent_context(
-            user_data_dir=str(tmp_dir),
-            headless=False,
-            executable_path=self._brave_path,
-            viewport={"width": 1920, "height": 1080},
-            locale="zh-CN",
-            timezone_id="Asia/Shanghai",
-            args=["--disable-blink-features=AutomationControlled"],
+        # 启动 Brave (CDP 模式)
+        logger.info("启动 Brave (CDP) ...")
+        self._cdp_brave_proc = subprocess.Popen(
+            [self._brave_path,
+             f"--remote-debugging-port={CDP_PORT}",
+             f"--user-data-dir={profile_dir}",
+             "--remote-allow-origins=*",
+             "--no-first-run",
+             "--no-default-browser-check",
+             ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
-        page = context.pages[0] if context.pages else context.new_page()
 
-        # 注入反检测 JS
-        page.add_init_script("""
-            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-            Object.defineProperty(navigator, 'plugins', { get: () => [1,2,3,4,5] });
-            Object.defineProperty(navigator, 'languages', { get: () => ['zh-CN', 'zh'] });
-            window.chrome = { runtime: {} };
-        """)
+        # 等 CDP 就绪
+        import urllib.request
+        for _ in range(30):
+            try:
+                resp = urllib.request.urlopen(
+                    f"http://127.0.0.1:{CDP_PORT}/json/version", timeout=3
+                )
+                ws_url = json.loads(resp.read())["webSocketDebuggerUrl"]
+                break
+            except Exception:
+                time.sleep(1)
+        else:
+            raise TimeoutError("Brave CDP 启动超时")
 
-        self._cdp_context = context
-        self._cdp_page = page
-        logger.info("CDP 会话已建立")
+        # 建立 WebSocket 连接
+        import websocket
+        self._cdp_ws = websocket.create_connection(ws_url, timeout=30)
+        logger.info("CDP WebSocket 已连接")
 
-    def _get_bst_cookie(self) -> str:
-        """从已加载的 cookies 中提取 bst (用作 zp_token header)"""
-        if not self._cdp_context:
-            return ""
-        cookies = self._cdp_context.cookies()
-        for c in cookies:
-            if c.get("name") == "bst":
-                return c.get("value", "")
-        return ""
+        # 创建隐藏页面 target (不抢焦点)
+        target = self._send_cdp("Target.createTarget", {
+            "url": "about:blank", "background": True,
+        })
+        self._cdp_target_id = target["result"]["targetId"]
+        attached = self._send_cdp("Target.attachToTarget", {
+            "targetId": self._cdp_target_id, "flatten": True,
+        })
+        self._cdp_sid = attached["result"]["sessionId"]
+
+        # 注册 visibility override (防止 BOSS 检测到后台 tab)
+        self._send_cdp("Page.addScriptToEvaluateOnNewDocument", {
+            "source": self.BACKGROUND_VISIBILITY_JS,
+        }, self._cdp_sid)
+
+        # 启用必要域
+        self._send_cdp("Page.enable", sid=self._cdp_sid)
+        self._send_cdp("Network.enable", sid=self._cdp_sid)
+
+        # 注入 cookies (如果有保存的)
+        state_path = Path(__file__).resolve().parent.parent.parent / "data" / "boss_storage_state.json"
+        if state_path.exists():
+            try:
+                state = json.loads(state_path.read_text())
+                for c in state.get("cookies", []):
+                    self._send_cdp("Network.setCookie", {
+                        "name": c["name"], "value": c["value"],
+                        "domain": c.get("domain", ".zhipin.com"),
+                        "path": c.get("path", "/"),
+                    }, self._cdp_sid)
+                logger.info("已注入 %d cookies", len(state.get("cookies", [])))
+            except Exception as e:
+                logger.warning("Cookie 注入失败: %s", e)
+
+        logger.info("CDP 会话已建立 (target=%s)", self._cdp_target_id[:12])
+
+    def _cdp_navigate(self, url: str):
+        """在 CDP page 中导航并等待渲染"""
+        self._send_cdp("Page.navigate", {"url": url}, self._cdp_sid)
+        time.sleep(6)  # 等 SPA 完全渲染
 
     def _fetch_cdp(
         self,
@@ -293,73 +373,86 @@ class ScraplingAdapter:
         timeout: int,
         capture_xhr: str | None = None,
     ) -> FetchResult:
-        """通过 launch_persistent_context 用真实浏览器采集"""
-        self._ensure_browser()
+        """Raw CDP WebSocket: 在页面内执行 XHR 获取 API 数据"""
+        self._ensure_cdp()
         t0 = time.time()
-        html_content = ""
 
-        page = self._cdp_page
-        logger.info("CDP fetch: %s, capture_xhr=%s", url[:60], capture_xhr)
+        # 先导航到 BOSS (建立 SPA 上下文 + cookies)
+        self._cdp_navigate("https://www.zhipin.com/web/geek/job?query=AI&city=100010000")
 
-        # 设置 zp_token header (BOSS 反爬需要)
+        # 构建 API URL
+        keyword = ""
+        city_code = "100010000"
+        page_num = 1
+        if "query=" in url:
+            params = dict(qp.split("=") for qp in url.split("?")[1].split("&") if "=" in qp)
+            keyword = params.get("query", "")
+            city_code = params.get("city", "100010000")
+            page_num = int(params.get("page", "1"))
+        api_url = f"/wapi/zpgeek/search/joblist.json?query={keyword}&city={city_code}&page={page_num}"
+
+        js = self.FETCH_API_JS.replace("__API_URL__", api_url).replace("__KEYWORD__", keyword)
+        result_json = self._eval_js(js, self._cdp_sid)
+
+        latency = (time.time() - t0) * 1000
+
+        if not result_json:
+            return FetchResult(
+                success=False, url=url, error_type="CDP_EMPTY",
+                error_message="XHR returned no data",
+                latency_ms=latency,
+            )
+
         try:
-            cookies = self._cdp_context.cookies()
-            bst = next((c["value"] for c in cookies if c["name"] == "bst"), "")
-            if bst:
-                page.set_extra_http_headers({
-                    "zp_token": bst,
-                    "x-requested-with": "XMLHttpRequest",
-                })
-        except Exception:
-            pass
+            jobs = json.loads(result_json)
+        except json.JSONDecodeError as e:
+            return FetchResult(
+                success=False, url=url, error_type="CDP_JSON_ERROR",
+                error_message=str(e),
+                latency_ms=latency,
+            )
 
-        # 注册 XHR 捕获
-        self.captured_xhr = []
-        if capture_xhr:
-            def _on_response(response):
-                if capture_xhr in response.url:
-                    try:
-                        body = response.body()
-                        self.captured_xhr.append({
-                            "url": response.url,
-                            "status": response.status,
-                            "body": body.decode("utf-8", errors="replace"),
-                        })
-                    except Exception:
-                        pass  # 第一条 body 会被 Playwright 内部消费, 后续可用
-            page.on("response", _on_response)
+        if isinstance(jobs, dict) and jobs.get("error"):
+            return FetchResult(
+                success=False, url=url, error_type="CDP_XHR_ERROR",
+                error_message=str(jobs["error"]),
+                latency_ms=latency,
+            )
 
-        # 导航 (等待网络空闲确保 SPA 完全渲染)
-        page.goto(url, wait_until="networkidle", timeout=timeout * 1000)
-        page.wait_for_timeout(3000)
-
-        # 取页面 HTML
-        try:
-            html_content = page.content()
-        except Exception:
-            pass
+        # 保存原始 JSON 到 html 字段, 提取到 captured_xhr
+        raw_body = json.dumps(jobs)
+        self.captured_xhr = [{
+            "url": url,
+            "status": 200,
+            "body": raw_body,
+        }]
 
         return FetchResult(
             success=True,
             url=url,
             status_code=200,
-            html=html_content,
-            latency_ms=(time.time() - t0) * 1000,
+            html=raw_body,
+            latency_ms=latency,
         )
 
     def close_cdp(self):
-        """关闭 CDP 会话"""
-        if self._cdp_context:
+        """关闭 CDP WebSocket 和 Brave 进程"""
+        if self._cdp_ws:
             try:
-                self._cdp_context.close()
+                self._cdp_ws.close()
             except Exception:
                 pass
-            self._cdp_context = None
-            self._cdp_page = None
-        if hasattr(self, "_pw_mgr") and self._pw_mgr:
+            self._cdp_ws = None
+        if self._cdp_brave_proc:
             try:
-                self._pw_mgr.__exit__(None, None, None)
+                self._cdp_brave_proc.terminate()
+                self._cdp_brave_proc.wait(timeout=5)
             except Exception:
-                pass
-            self._pw_mgr = None
-            self._pw = None
+                try:
+                    self._cdp_brave_proc.kill()
+                except Exception:
+                    pass
+            self._cdp_brave_proc = None
+        self._cdp_sid = None
+        self._cdp_target_id = None
+        logger.info("CDP 已关闭")

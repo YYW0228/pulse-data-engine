@@ -87,47 +87,31 @@ class BossExtractor:
         return all_jobs
 
     def _fetch_page(self, keyword: str, city: str, page_num: int) -> list[dict]:
-        """抓取一页 BOSS 数据"""
+        """抓取一页 BOSS 数据 (通过 CDP WebSocket XHR-in-page)"""
         url = (
             f"https://www.zhipin.com/web/geek/job?"
             f"query={keyword}&city={city}&page={page_num}"
         )
 
-        result = self.adapter.fetch(url, capture_xhr="search/joblist.json")
+        result = self.adapter.fetch(url)
 
         if not result.success:
             logger.warning("BOSS fetch failed: %s", result.error_message)
             return []
 
-        # 从捕获的 XHR 中找 joblist 数据
-        for xhr in self.adapter.captured_xhr:
-            try:
-                data = json.loads(xhr["body"])
-            except (json.JSONDecodeError, KeyError):
-                continue
+        try:
+            jobs = json.loads(result.html)
+        except (json.JSONDecodeError, TypeError):
+            logger.warning("BOSS JSON parse failed: %s", keyword)
+            return []
 
-            if data.get("code") != 0:
-                continue
+        # FETCH_API_JS 已解析好, key 已经和我们 schema 一致
+        if isinstance(jobs, list):
+            for j in jobs:
+                j["keyword"] = keyword
+            return jobs
 
-            raw = data.get("zpData", {}).get("jobList", [])
-            return [
-                {
-                    "url": f"https://www.zhipin.com/job_detail/{j.get('encryptJobId', '')}.html",
-                    "job_title": j.get("jobName", ""),
-                    "company_name": j.get("brandName", ""),
-                    "city": j.get("cityName", ""),
-                    "salary_min_k": _parse_salary(j.get("salaryDesc", ""))[0],
-                    "salary_max_k": _parse_salary(j.get("salaryDesc", ""))[1],
-                    "education": j.get("jobDegree", ""),
-                    "experience": j.get("jobExperience", ""),
-                    "keyword": keyword,
-                    "source": "boss",
-                    "domain": "zhipin.com",
-                }
-                for j in raw
-            ]
-
-        logger.warning("BOSS API 未捕获: %s city=%s p%d", keyword, city, page_num)
+        logger.warning("BOSS 返回非列表: %s", keyword)
         return []
 
     def close(self):
