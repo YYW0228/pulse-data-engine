@@ -78,7 +78,7 @@ class ScraplingAdapter:
 
     def _fetch_httpx(self, url: str, timeout: int) -> FetchResult:
         """降级回 httpx"""
-        from pulse.fetcher import Fetcher as HttpxFetcher
+        from pulse.fetcher import NetworkFetcher as HttpxFetcher
 
         f = HttpxFetcher(max_retries=2)
         return f.fetch(url, timeout=timeout)

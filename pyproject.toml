@@ -4,11 +4,16 @@ version = "0.1.0"
 description = "独立数据引擎 — ODS/DWD/DWS + SCD Type 2 + DLQ + Parquet"
 requires-python = ">=3.10"
 dependencies = [
+    "browserforge>=1.2.4",
+    "curl-cffi>=0.15.0",
     "duckdb>=1.5.5",
     "httpx>=0.28.1",
+    "msgspec>=0.21.1",
     "numpy>=2.2.6",
     "pandas>=2.3.3",
+    "playwright",
     "pydantic>=2.13.4",
+    "scrapling[full]>=0.4.12",
 ]
 
 [dependency-groups]

@@ -1,0 +1,158 @@
+{
+  "cookies": [
+    {
+      "name": "ab_guid",
+      "value": "2ae88baf-34d5-40ca-93c1-372e90666428",
+      "domain": ".zhipin.com",
+      "path": "/",
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "gdxidpyhxdE",
+      "value": "yqHsvI5%2FDq4gZXfot2vPKS%5CCKVjn0WYKR5UzQHc3gvPehdA8TCANhwJWj%2B8qw31gw4qOeHgRYq4hZomQWgAN1%5CJ3Mp51AHR3QSGa4%2Fpf4A41EhPbQzPltVzGlyoL1prwherl2ZsrXB5zzNH5DMly%2B%2BxOsxAfY%2FHvdSfliCBk8Uke%2FTNG%3A1782996927118",
+      "domain": ".zhipin.com",
+      "path": "/",
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "isOHPC",
+      "value": "1",
+      "domain": ".zhipin.com",
+      "path": "/",
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "__g",
+      "value": "-",
+      "domain": ".zhipin.com",
+      "path": "/",
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "wt2",
+      "value": "D3Z0VLKLVDu29wQAj8e-d9DU9uuU0wHPoUOlHO-ihRhZUBbW_pciEftuPKWOJGmeCymyhAs_q7KDtIWRluqcbPg~~",
+      "domain": ".zhipin.com",
+      "path": "/",
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "wbg",
+      "value": "0",
+      "domain": ".zhipin.com",
+      "path": "/",
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "zp_at",
+      "value": "KD_rBVvc7zwCAM6kgtYl-X6IlnxhMmL6_ZpQAS6Eglc~",
+      "domain": ".zhipin.com",
+      "path": "/",
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "SERVERID",
+      "value": "606144fb348bc19e48aededaa626f54e|1785211745|1785168794",
+      "domain": ".zhipin.com",
+      "path": "/",
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "__zp_stoken__",
+      "value": "09f2gPTvDjsK9w7vCvkYue0I9L0Y6Rj07ODhEPTvChSg6Ojw%2FRUUYwqLCucOEw4piYsOPw4PCvzwuODpCPTtGOj1AHjhGOjo7Pzs9wrtFOT3CojwrG8KawrzDg8OMZ2PDig4VwrgJxIHCugjDh8K6DsKZwrwLDSgqFwlnYWAKZRJcYWcPC2EPWhYWDVwMWw0MXhQPFVwTDBAdHUfCuMK6wp3DgcK%2BwrnCn8OGTMK%2FWMOEPTo9Oi85WsKqRC9EPD07RzjEu8S7xL3EvsS%2FxLvEu8S9w5bDvMOnxLvEvcOOwrzEu8S7w43DvsOcxLvEu8S9xL7DvcK6NDvClcK9w6jDucWywrPDrcScwpvCmcKtwrjCm8OAw79Qwqdvw75JwopJwopkVMKwwqnDh0hlw4daU8OATUxLwr%2FCu2fCsVtxf8K7ccK6SWdOSMK8EBBgEgs%2BEsKHwrU%3D",
+      "domain": ".zhipin.com",
+      "path": "/",
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "lastCity",
+      "value": "101230400",
+      "domain": ".zhipin.com",
+      "path": "/",
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "__zp_sname__",
+      "value": "3998243a",
+      "domain": ".zhipin.com",
+      "path": "/",
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "__c",
+      "value": "1785168806",
+      "domain": ".zhipin.com",
+      "path": "/",
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "__l",
+      "value": "l=%2Fwww.zhipin.com%2Fchengshi%2Fc101230400%2F%3FseoRefer%3Dindex&s=3&friend_source=0&s=3&friend_source=0",
+      "domain": ".zhipin.com",
+      "path": "/",
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "__a",
+      "value": "17822307.1782981372.1782981372.1785168806.69.2.17.69",
+      "domain": ".zhipin.com",
+      "path": "/",
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "bst",
+      "value": "V2QNsuFeX00lpvVtRuxxsaKC627DrVwyo~|QNsuFeX00lpvVtRuxxsaKC627DrUxSs~",
+      "domain": ".zhipin.com",
+      "path": "/",
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "__zp_sseed__",
+      "value": "ycfYckNg57RxSYoHWAnEGUuMI7HR+JcXT3ePbb6tHTg=",
+      "domain": ".zhipin.com",
+      "path": "/",
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "__zp_sts__",
+      "value": "1785262710141",
+      "domain": ".zhipin.com",
+      "path": "/",
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    }
+  ],
+  "origins": []
+}
