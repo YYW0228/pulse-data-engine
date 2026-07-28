@@ -17,15 +17,26 @@ from pulse.logging_config import setup_logging
 setup_logging()
 logger = logging.getLogger("import_boss")
 
-DATA_PATH = Path(__file__).resolve().parent.parent / "data" / "boss_jobs.json"
+DATA_PATH = Path(__file__).resolve().parent.parent / "data" / "boss_snapshot.json"
+ALT_PATHS = [
+    Path(__file__).resolve().parent.parent / "data" / "boss_jobs.json",
+]
 
 def main():
-    if not DATA_PATH.exists():
-        logger.error(f"文件不存在: {DATA_PATH}")
-        logger.info("请先在浏览器中运行导出脚本, 然后 cp ~/Downloads/boss_jobs.json data/")
+    path = DATA_PATH
+    if not path.exists():
+        for ap in ALT_PATHS:
+            if ap.exists():
+                path = ap
+                break
+
+    if not path.exists():
+        logger.error(f"文件不存在: {path}")
+        logger.info("请先运行采集: uv run python -c 'from pulse.extractors.boss import BossExtractor; ...'")
+        logger.info("或从浏览器导出 boss_jobs.json 放入 data/")
         return
 
-    raw = json.loads(DATA_PATH.read_text(encoding="utf-8"))
+    raw = json.loads(path.read_text(encoding="utf-8"))
     logger.info(f"加载 {len(raw)} 条数据")
 
     p = Pipeline()
