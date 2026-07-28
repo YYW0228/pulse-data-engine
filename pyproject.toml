@@ -5,7 +5,7 @@ description = "独立数据引擎 — ODS/DWD/DWS + SCD Type 2 + DLQ + Parquet"
 requires-python = ">=3.10"
 dependencies = [
     "browserforge>=1.2.4",
-    "curl-cffi>=0.15.0",
+    "curl-cffi[socks]>=0.15.0",
     "duckdb>=1.5.5",
     "httpx>=0.28.1",
     "msgspec>=0.21.1",
@@ -13,6 +13,7 @@ dependencies = [
     "pandas>=2.3.3",
     "playwright",
     "pydantic>=2.13.4",
+    "requests[socks]>=2.34.2",
     "scrapling[full]>=0.4.12",
 ]
 
