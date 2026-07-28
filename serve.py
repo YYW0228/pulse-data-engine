@@ -192,23 +192,52 @@ else:
 # ── 行 4: DLQ 分析 ──────────────────────────────────────────────────
 st.subheader("⚠️ 死信队列 (DLQ)")
 
-dlq_df = safe_query(
+col1, col2 = st.columns(2)
+with col1:
+    dlq_df = safe_query(
+        con,
+        """
+        SELECT error_type, COUNT(*) as count
+        FROM dlq_jobs
+        GROUP BY error_type
+        ORDER BY count DESC
+    """,
+    )
+    if not dlq_df.empty:
+        st.dataframe(dlq_df, use_container_width=True, hide_index=True)
+
+with col2:
+    if not dlq_df.empty:
+        st.bar_chart(dlq_df.set_index("error_type"), height=250)
+
+# DLQ 时间趋势 (按小时聚合最近 24h)
+dlq_trend = safe_query(
     con,
     """
-    SELECT error_type, COUNT(*) as count
+    SELECT strftime(failed_at, '%Y-%m-%d %H:00') as hour, COUNT(*) as count
     FROM dlq_jobs
-    GROUP BY error_type
-    ORDER BY count DESC
+    WHERE failed_at >= NOW() - INTERVAL '24 hours'
+    GROUP BY hour
+    ORDER BY hour
 """,
 )
-if not dlq_df.empty:
-    col1, col2 = st.columns([2, 3])
-    with col1:
-        st.dataframe(dlq_df, use_container_width=True, hide_index=True)
-    with col2:
-        st.bar_chart(dlq_df.set_index("error_type"), height=250)
-else:
-    st.info("DLQ 为空")
+if not dlq_trend.empty:
+    st.caption("📈 最近 24h DLQ 趋势")
+    st.line_chart(dlq_trend.set_index("hour"), height=200)
+
+# DLQ 样本 (最近 5 条)
+dlq_samples = safe_query(
+    con,
+    """
+    SELECT error_type, error_message, failed_at
+    FROM dlq_jobs
+    ORDER BY failed_at DESC
+    LIMIT 5
+""",
+)
+if not dlq_samples.empty:
+    with st.expander("📋 最近 DLQ 样本"):
+        st.dataframe(dlq_samples, use_container_width=True, hide_index=True)
 
 # ── 行 5: 质量 SLA ──────────────────────────────────────────────────
 st.subheader("✅ 质量 SLA")
