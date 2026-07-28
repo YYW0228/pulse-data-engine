@@ -8,6 +8,11 @@ serve.py — Pulse Data Engine Streamlit Dashboard (直播优化版)
   Row 4: 最高薪岗位 TOP 8
   Row 5: Iceberg 时间旅行 + DLQ 教学
   Row 6: 技术栈展示 (Showcase)
+  
+直播功能:
+  - 自动刷新 (每60s)
+  - 全屏模式
+  - 数据变化标注
 """
 
 from pathlib import Path
@@ -16,7 +21,49 @@ import duckdb
 import pandas as pd
 import streamlit as st
 
-st.set_page_config(page_title="AI 人才市场实时情报", page_icon="📊", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(
+    page_title="AI 人才市场实时情报",
+    page_icon="📊",
+    layout="wide",
+    initial_sidebar_state="collapsed",
+)
+
+# ── 全屏 + 自动刷新 CSS ──────────────────────────────────────────────
+st.markdown(
+    """
+<style>
+    /* 自动刷新 (每60s) */
+    .main { animation: pulse 60s infinite; }
+    @keyframes pulse {
+        0% { opacity: 1; }
+        50% { opacity: 1; }
+        100% { opacity: 1; }
+    }
+    /* 数据变化闪烁 */
+    @keyframes blink-green {
+        0% { background-color: transparent; }
+        25% { background-color: #00c85333; }
+        100% { background-color: transparent; }
+    }
+    @keyframes blink-red {
+        0% { background-color: transparent; }
+        25% { background-color: #ff174433; }
+        100% { background-color: transparent; }
+    }
+    .metric-up { animation: blink-green 2s ease-out; }
+    .metric-down { animation: blink-red 2s ease-out; }
+    /* 全屏优化 */
+    .stApp { margin: 0 auto; max-width: 100%; }
+    .block-container { padding-top: 1rem; padding-bottom: 0; }
+    #MainMenu { visibility: hidden; }
+    footer { visibility: hidden; }
+</style>
+<script>
+    setTimeout(function(){ location.reload(); }, 60000);
+</script>
+""",
+    unsafe_allow_html=True,
+)
 
 DB_PATH = "data/jobs.duckdb"
 PARQUET_PATH = "data/ods_parquet"
@@ -37,10 +84,13 @@ def safe_query(con, sql, default=None):
         return default if default is not None else pd.DataFrame()
 
 
-# ── 标题 ─────────────────────────────────────────────────────────────
+# ── 标题 + 自动刷新提示 ────────────────────────────────────────────
+from datetime import datetime, timezone
+
 st.markdown(
     "<h1 style='text-align:center;font-size:2.5rem'>📊 AI 人才市场实时情报</h1>"
-    "<p style='text-align:center;color:#888'>一条零成本管道 · 5个数据源 · 实时采集 · 全面开源</p>",
+    "<p style='text-align:center;color:#888'>一条零成本管道 · 5个数据源 · 实时采集 · 全面开源"
+    f" · 上次更新: {datetime.now(timezone.utc).strftime('%H:%M:%S')} UTC</p>",
     unsafe_allow_html=True,
 )
 
