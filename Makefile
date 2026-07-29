@@ -65,10 +65,12 @@ up:
 	$(UV) python -m pulse.wasm_server &
 	$(UV) streamlit run serve.py &
 	$(UV) dagster-daemon run -w workspace.yaml &
+	$(UV) python -m scripts.telegram_poller &
 	@echo "  📊 Metrics:   http://localhost:9464/metrics"
 	@echo "  🦆 WASM SQL:  http://localhost:8000/wasm"
 	@echo "  🚀 Dashboard: http://localhost:8501"
 	@echo "  🎬 Dagster:   http://localhost:3000 (dagster dev)"
+	@echo "  📨 Telegram:  data/telegram_inbox.jsonl"
 
 # ── 停服务 ────────────────────────────────────────────────────────────
 down:
