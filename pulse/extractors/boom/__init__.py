@@ -7,14 +7,22 @@
   analyzer.py     — L1 DeepSeek 快评 + L2 接口定义
 """
 
-from .creators import CREATOR_LIST, list_creators, Platform, CreatorProfile
-from .scorer import compute_baseline, compute_r, tier_of, grade_work, freeze_evidence
-from .collector import collect_posts
 from .analyzer import L1Analyzer, L2Spec
+from .collector import collect_posts
+from .creators import CREATOR_LIST, CreatorProfile, Platform, list_creators
+from .scorer import compute_baseline, compute_r, freeze_evidence, grade_work, tier_of
 
 __all__ = [
-    "CREATOR_LIST", "list_creators", "Platform", "CreatorProfile",
-    "compute_baseline", "compute_r", "tier_of", "grade_work", "freeze_evidence",
+    "CREATOR_LIST",
+    "CreatorProfile",
+    "L1Analyzer",
+    "L2Spec",
+    "Platform",
     "collect_posts",
-    "L1Analyzer", "L2Spec",
+    "compute_baseline",
+    "compute_r",
+    "freeze_evidence",
+    "grade_work",
+    "list_creators",
+    "tier_of",
 ]

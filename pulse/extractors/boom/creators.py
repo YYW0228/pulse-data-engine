@@ -8,7 +8,7 @@ MVP 从 10 个开始 → 后续通过前端管理扩展到 142 个。
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Literal
 
 logger = logging.getLogger("pulse.boom.creators")

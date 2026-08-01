@@ -10,7 +10,6 @@ import json
 import logging
 import time
 from pathlib import Path
-from typing import Any
 
 import duckdb
 
@@ -104,7 +103,7 @@ class BoomPipeline:
             )
         """)
         # DuckDB 默认 WAL (不需要显式设置)
-        logger.info(f"[BoomPipeline] Schema 就绪")
+        logger.info("[BoomPipeline] Schema 就绪")
 
     def save_creator(self, creator: dict) -> None:
         self.con.execute("""

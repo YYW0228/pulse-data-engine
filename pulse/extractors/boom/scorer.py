@@ -11,11 +11,10 @@ pulse/extractors/boom/scorer.py — R/M/Tier 三信号评分引擎
 
 from __future__ import annotations
 
+import logging
 import statistics
 import time
 from typing import Literal
-
-import logging
 
 logger = logging.getLogger("pulse.boom.scorer")
 

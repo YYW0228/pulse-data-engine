@@ -13,7 +13,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-from typing import Any
 
 logger = logging.getLogger("pulse.boom.analyzer")
 
@@ -109,8 +108,8 @@ class L1Analyzer:
         parts = [
             f"标题: {post.get('title', '')}",
             f"平台: {post.get('platform', '')}",
-            f"互动: 👍{post.get('likes', 0)} 💬{post.get('comments', 0)} "
-            f"⭐{post.get('collects', 0)} 🔄{post.get('shares', 0)}",
+            (f"互动: 👍{post.get('likes', 0)} 💬{post.get('comments', 0)} "
+            f"⭐{post.get('collects', 0)} 🔄{post.get('shares', 0)}"),
         ]
         if context:
             if "baseline" in context:

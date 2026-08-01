@@ -31,8 +31,11 @@ def run_scan(platform: str | None = None, mock_only: bool = False):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
     from pulse.extractors.boom import (
-        CREATOR_LIST, compute_baseline, freeze_evidence,
-        list_creators, collect_posts, L1Analyzer,
+        L1Analyzer,
+        collect_posts,
+        compute_baseline,
+        freeze_evidence,
+        list_creators,
     )
     from pulse.pipelines.boom_pipeline import BoomPipeline
 

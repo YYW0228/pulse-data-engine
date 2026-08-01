@@ -16,7 +16,6 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from urllib.parse import parse_qs
 
 import duckdb
 import pandas as pd

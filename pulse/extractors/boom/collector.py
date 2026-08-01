@@ -12,12 +12,11 @@ pulse/extractors/boom/collector.py — 多平台采集器
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import random
 import time
-from typing import Protocol
+from typing import Any
 
 logger = logging.getLogger("pulse.boom.collector")
 
@@ -41,7 +40,7 @@ class MockCollector:
     def collect(self, platform: str, platform_id: str, max_posts: int = 20) -> list[dict]:
         """生成模拟作品列表"""
         now = int(time.time())
-        posts = []
+        posts: list[dict[str, Any]] = []
         for i in range(max_posts):
             base_likes = random.randint(200, 5000)
             posts.append({
@@ -61,8 +60,8 @@ class MockCollector:
             })
         # 让最近 2-3 条数据明显高于基线 (模拟爆款)
         for i in range(min(3, len(posts))):
-            posts[i]["likes"] = posts[i]["likes"] * random.randint(5, 15)
-            posts[i]["comments"] = posts[i]["comments"] * random.randint(3, 10)
+            posts[i]["likes"] = int(posts[i]["likes"] or 0) * random.randint(5, 15)
+            posts[i]["comments"] = int(posts[i]["comments"] or 0) * random.randint(3, 10)
             posts[i]["title"] = f"[🔥模拟爆款] {posts[i]['title']}"
         logger.info(
             f"[MockCollector] 生成了 {len(posts)} 条模拟数据 "
