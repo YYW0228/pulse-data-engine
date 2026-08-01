@@ -22,6 +22,8 @@ jobs:
   pipeline:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
     steps:
       - uses: actions/checkout@v4
 
@@ -56,10 +58,10 @@ jobs:
           echo "Pipeline status: $STATUS"
 
       - name: Slack 通知 (失败)
-        if: (steps.parse.outputs.status == 'failed' || steps.parse.outputs.status == 'crashed') && secrets.SLACK_WEBHOOK_URL != ''
+        if: (steps.parse.outputs.status == 'failed' || steps.parse.outputs.status == 'crashed') && env.SLACK_WEBHOOK_URL != ''
         uses: slackapi/slack-github-action@v2.0.0
         with:
-          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook: ${{ env.SLACK_WEBHOOK_URL }}
           webhook-type: incoming-webhook
           payload: |
             {
@@ -71,10 +73,10 @@ jobs:
             }
 
       - name: Slack 通知 (成功)
-        if: steps.parse.outputs.status == 'completed' && secrets.SLACK_WEBHOOK_URL != ''
+        if: steps.parse.outputs.status == 'completed' && env.SLACK_WEBHOOK_URL != ''
         uses: slackapi/slack-github-action@v2.0.0
         with:
-          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook: ${{ env.SLACK_WEBHOOK_URL }}
           webhook-type: incoming-webhook
           payload: |
             {
