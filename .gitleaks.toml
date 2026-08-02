@@ -1,0 +1,15 @@
+# Pulse Data Engine gitleaks 配置
+# 目的: 消除 generic-api-key 对评分卡维度字典键的误报。
+# scripts/devour_scorecard.py 中所有 "key" 均为纯数据结构键
+# (phase0_summary ... verdict_filter), 非真实密钥。
+
+title = "pulse-data-engine gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "False positives: dimension dict keys in scripts/devour_scorecard.py"
+regexes = [
+    '''"key"\s*:\s*"(phase0_summary|phase1_architecture|phase2_patterns|phase3_comparison|phase4_adaptation|phase5_iteration|verdict_filter)"''',
+]
