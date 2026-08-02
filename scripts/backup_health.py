@@ -1,0 +1,120 @@
+"""
+scripts/backup_health.py — 备份健康检查
+
+验证多仓库备份是否健康:
+  1. 各仓库 git 未提交数 = 0 (代码已备份)
+  2. hermes-brain 上次 push 时间 < 48h (配置已备份)
+  3. 关键服务 running (可提供服务)
+  4. 退出码: 0=健康 / 1=有告警 (供 cron 判断)
+
+用法:
+  uv run python -m scripts.backup_health          # 全量检查
+  uv run python -m scripts.backup_health --json   # JSON 输出
+"""
+
+import argparse
+import json
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+PROJECTS_ROOT = Path("/root/projects")
+TIER1 = ["pulse-data-engine", "hermes-brain", "china-ai-governance"]
+TIER2 = ["job-scraper", "startalent-enterprise"]
+TIER3 = ["kv-cache-governance", "my-intelligence-base", "obsidian_2025",
+         "SOVEREIGN-SINGULARITY", "startalent-project-template"]
+
+SERVICES = ["pulse-dashboard", "pulse-compliance", "pulse-wasm", "pulse-metrics", "pulse-telegram"]
+MAX_UNPUSHED_AGE_HOURS = 48
+
+
+def git_uncommitted(repo: str) -> int:
+    """未提交文件数"""
+    r = subprocess.run(["git", "-C", str(PROJECTS_ROOT / repo), "status", "--porcelain"],
+                       capture_output=True, text=True, timeout=10)
+    return len(r.stdout.splitlines())
+
+
+def git_last_push(repo: str) -> float:
+    """上次 push 时间 (unix)"""
+    r = subprocess.run(
+        ["git", "-C", str(PROJECTS_ROOT / repo), "log", "-1", "--format=%ct", "origin/main"],
+        capture_output=True, text=True, timeout=10)
+    try:
+        return float(r.stdout.strip())
+    except ValueError:
+        return 0
+
+
+def service_active(name: str) -> bool:
+    r = subprocess.run(["systemctl", "is-active", name], capture_output=True, text=True, timeout=10)
+    return r.stdout.strip() == "active"
+
+
+def check() -> dict:
+    results: dict = {
+        "repos": {},
+        "services": {},
+        "ok": True,
+        "alerts": [],
+    }
+
+    # 1. 仓库备份健康
+    for repo in TIER1 + TIER2 + TIER3:
+        try:
+            uncommitted = git_uncommitted(repo)
+            last_push = git_last_push(repo)
+            age_h = (time.time() - last_push) / 3600 if last_push else 999
+            healthy = uncommitted == 0 and age_h < MAX_UNPUSHED_AGE_HOURS
+            results["repos"][repo] = {
+                "uncommitted": uncommitted,
+                "last_push_hours": round(age_h, 1),
+                "healthy": healthy,
+            }
+            if not healthy:
+                results["ok"] = False
+                results["alerts"].append(f"{repo}: 未提交 {uncommitted} / push {age_h:.0f}h 前")
+        except Exception as e:
+            results["repos"][repo] = {"error": str(e), "healthy": False}
+            results["ok"] = False
+            results["alerts"].append(f"{repo}: 检查失败 {e}")
+
+    # 2. 服务健康
+    for svc in SERVICES:
+        active = service_active(svc)
+        results["services"][svc] = active
+        if not active:
+            results["ok"] = False
+            results["alerts"].append(f"{svc}: 不在运行")
+
+    return results
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--json", action="store_true")
+    args = parser.parse_args()
+
+    results = check()
+    if args.json:
+        print(json.dumps(results, ensure_ascii=False, indent=2))
+    else:
+        print("=== 仓库备份健康 ===")
+        for repo, r in results["repos"].items():
+            mark = "✅" if r.get("healthy") else "🔴"
+            print(f"  {mark} {repo}: 未提交={r.get('uncommitted','?')} push={r.get('last_push_hours','?')}h")
+        print("=== 服务健康 ===")
+        for svc, ok in results["services"].items():
+            print(f"  {'✅' if ok else '🔴'} {svc}")
+        if results["alerts"]:
+            print("\n⚠️ 告警:")
+            for a in results["alerts"]:
+                print(f"  - {a}")
+        print(f"\n总体: {'✅ 健康' if results['ok'] else '🔴 有告警'}")
+
+    sys.exit(0 if results["ok"] else 1)
+
+
+if __name__ == "__main__":
+    main()
