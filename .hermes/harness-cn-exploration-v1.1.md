@@ -38,7 +38,7 @@
 把 verification 提升为 loop 的**原生阶段**：
 - rules（确定性）→ sensors（观察）→ judges（LLM/人类）→ repair actions
 - 引入**对抗性验证**（另一个 agent 尝试找茬）和**经济验证**（成本是否值得继续）
-- Boris Cherny 的 2-3x 只是开始；目标是"**失败可预测、可局部修复**"
+- 目标是"**失败可预测、可局部修复**"
 
 ### A5. Harness 的自我进化 Meta-Loop
 

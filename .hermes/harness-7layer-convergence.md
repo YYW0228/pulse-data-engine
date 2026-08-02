@@ -1,7 +1,7 @@
-# Rohit 七层极简全栈 — 中国企业版 Agent Harness 收敛骨架 (2026-08-02)
+# 七层极简全栈 — 中国企业版 Agent Harness 收敛骨架 (2026-08-02)
 
-> 来源: Rohit 生产级 Harness 七层架构 (一年重建 4 次收敛)
-> 决策: 采纳 7 层为对外骨架, 12 组件保留为内部检查清单
+> 版本: v2.0 (由 12 组件 v1.0 收敛而来)
+> 决策: 7 层为对外骨架, 12 组件保留为内部检查清单
 > 关联: harness-cn-deep-dive.md (12 组件 v1.0) + harness-cn-exploration-v1.1.md
 
 ## 七层骨架 (横向贯穿: Guardrails + Observability)
@@ -18,7 +18,7 @@
 
 ## 12 组件 → 7 层精确映射
 
-| Rohit 7 层 | 对应 12 组件 | 中国企业版强化 | 未来证明 |
+| 7 层 | 对应 12 组件 | 中国企业版强化 | 未来证明 |
 |-----------|-------------|--------------|---------|
 | 1. Surface | Prompt Construction + 入口适配 | 统一 Task Object, 屏蔽钉钉/飞书/OA/API 差异 | 几乎不变 |
 | 2. Orchestration | Orchestration Loop + Subagent + Verification(部分) | 薄循环 + fan-out/merge + 内嵌验证 | 应变薄 |
@@ -30,7 +30,7 @@
 | 横向 Guardrails | Guardrails + Verification Loops | 输入/工具/输出三道闸 | 规则可内化, 策略保留 |
 | 横向 Observability | Lifecycle + Observability | 全链路 Trace/成本归因/失败聚类/审计 | 必须保留加强 |
 
-## 我们当前实现的 7 层映射 (不偏移确认)
+## 当前实现的 7 层映射
 
 ```
 Surface:    Streamlit 前端 + CLI (compliance_qa.py) — 待归一 Task Object
@@ -63,4 +63,4 @@ Observability: compliance_metrics + Prometheus ✅
 
 ## 核心指令 (归档)
 
-"参考 Rohit 的七层极简全栈 (Surface → Orchestration → Context → Model → Tools → Runtime → Memory, 外加横向 Guardrails & Observability), 把 12 组件收敛映射到这 7 层上, 优先保证薄而可控, 拒绝框架绑架。"
+"采用七层极简全栈 (Surface → Orchestration → Context → Model → Tools → Runtime → Memory, 外加横向 Guardrails & Observability), 把 12 组件收敛映射到这 7 层上, 优先保证薄而可控, 拒绝框架绑架。"

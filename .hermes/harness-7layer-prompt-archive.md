@@ -5,7 +5,7 @@
 
 ## 核心指令
 
-"参考 Rohit 的七层极简全栈 (Surface → Orchestration → Context → Model → Tools → Runtime → Memory, 外加横向 Guardrails & Observability), 把我们的 12 组件收敛映射到这 7 层上, 优先保证薄而可控, 拒绝框架绑架。"
+"参考七层极简全栈 (Surface → Orchestration → Context → Model → Tools → Runtime → Memory, 外加横向 Guardrails & Observability), 把我们的 12 组件收敛映射到这 7 层上, 优先保证薄而可控, 拒绝框架绑架。"
 
 ## 更新后的 DeepSeek 提示词
 
@@ -13,7 +13,7 @@
 
 当前任务：在 Hermes 代理中继续探索和完善「中国企业转型专用 Agent Harness 框架模板」。
 
-【核心骨架】必须采用并严格遵循 Rohit 验证的七层极简全栈（一年重建四次后的收敛结果）：
+【核心骨架】必须采用并严格遵循七层极简全栈（一年重建四次后的收敛结果）：
 1. Surface（入口层）→ 统一 Task Object
 2. Orchestration（编排层）→ 薄循环 + fan-out/merge + 内嵌验证
 3. Context（上下文层）→ Budget 思维，强制 compact
