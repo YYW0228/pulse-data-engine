@@ -20,6 +20,7 @@ data/compliance_metrics.jsonl
 data/compliance_traces.jsonl
 data/memory_demo.*
 data/artifacts/
+data/context_dumps/
 pulse/data/*.duckdb
 
 # Secrets
