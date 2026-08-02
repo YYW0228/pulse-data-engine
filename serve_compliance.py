@@ -49,10 +49,20 @@ if "messages" not in st.session_state:
 
 
 def ask(query: str) -> str:
-    """调用 compliance_qa 回答"""
-    from compliance_qa import answer
+    """调用 compliance_qa 回答 (含检索块调试信息)"""
+    from compliance_qa import answer, compile_context
 
-    return answer(query)
+    # 编译检索块 (供展示)
+    try:
+        chunks = compile_context(query, top_k=3)
+        debug = "\n\n---\n**📎 检索依据 (相似度):**\n"
+        for c in chunks:
+            debug += f"- `{c['doc'][:40]}` · {c['title'][:30]} · sim={c['hits']}\n"
+    except Exception:
+        debug = ""
+
+    result = answer(query)
+    return result + debug
 
 
 # 显示历史消息
