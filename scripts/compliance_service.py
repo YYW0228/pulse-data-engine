@@ -48,10 +48,13 @@ class ComplianceService:
                 "ms": round((time.time() - t0) * 1000, 1),
             }
 
-        # 2. 问答 (检索+路由+回答)
+        # 2. 问答 (检索+路由+回答, 传 history 供 PrefixCache)
         from compliance_qa import answer as qa_answer
 
-        raw = qa_answer(task.intent, mask_metadata=True)
+        history = task.payload.get("history") if isinstance(task.payload.get("history"), list) else None
+        if history is None:
+            history = task.metadata.get("history") if isinstance(task.metadata.get("history"), list) else None
+        raw = qa_answer(task.intent, mask_metadata=True, history=history)
 
         # 3. 结构化解析
         parsed: ParseResult = self.parser.parse(raw)
