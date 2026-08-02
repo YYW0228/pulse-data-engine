@@ -40,6 +40,12 @@ class MemoryStore:
     def con(self) -> duckdb.DuckDBPyConnection:
         if self._con is None:
             self._con = duckdb.connect(str(self.db_path))
+            # 兜底: 显式设置扩展目录 (systemd/CI 环境 HOME 可能异常)
+            for ext_dir in (Path("/root/.duckdb/extensions"), Path.home() / ".duckdb" / "extensions"):
+                if ext_dir.exists():
+                    self._con.execute(f"SET extension_directory='{ext_dir}'")
+                    break
+            self._con.execute("INSTALL vss")  # 幂等: CI 环境自动下载
             self._con.execute("LOAD vss")
             self._con.execute("SET hnsw_enable_experimental_persistence = true")
             self._ensure_schema()
