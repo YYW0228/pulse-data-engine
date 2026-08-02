@@ -1,0 +1,19 @@
+{
+  "name": "evidence_artifacts",
+  "source": {
+    "repo": "Kun",
+    "license": "PolyForm 非商用",
+    "file": "kun/src/services/extension-artifact-service.ts"
+  },
+  "category": "evidence",
+  "core_idea": "交付物打包 (答案+引用+依据+护栏+成本) 而非'自称完成'",
+  "status": "migrated",
+  "future_proof": "不变 (验收机制模型变强仍需)",
+  "adaptation": "pulse/artifacts.py EvidenceArtifact (JSON+MD双格式)",
+  "pitfalls": [
+    "Kun License 非商用 — 只借鉴思路不复制代码"
+  ],
+  "verification": "每次问答自动产出 artifact 文件",
+  "value": "high",
+  "landed_at": "pulse-data-engine/pulse/artifacts.py"
+}

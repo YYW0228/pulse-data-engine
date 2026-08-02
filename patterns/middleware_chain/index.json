@@ -1,0 +1,19 @@
+{
+  "name": "middleware_chain",
+  "source": {
+    "repo": "DeerFlow",
+    "license": "MIT",
+    "file": "agents/middlewares/ (39个)"
+  },
+  "category": "orchestration",
+  "core_idea": "39 关注点各自独立 middleware, 可插拔组合",
+  "status": "watch",
+  "future_proof": "变复杂 (多一层抽象) — 需 Rule of Three",
+  "adaptation": "关注点 >10 时才抽象",
+  "pitfalls": [
+    "middleware 顺序敏感",
+    "过度抽象风险"
+  ],
+  "verification": "N/A (观察)",
+  "value": "medium"
+}

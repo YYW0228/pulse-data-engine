@@ -1,0 +1,20 @@
+{
+  "name": "token_budget",
+  "source": {
+    "repo": "DeerFlow",
+    "license": "MIT",
+    "file": "agents/middlewares/token_budget_middleware.py"
+  },
+  "category": "cost",
+  "core_idea": "会话累计 token 硬上限, 超限 budget_capped 优雅终止 (不抛异常)",
+  "status": "migrated",
+  "future_proof": "不变 (推理成本永远是刚需)",
+  "adaptation": "compliance_qa.py answer(budget=...) 闸门",
+  "pitfalls": [
+    "子代理 token 也要计入",
+    "预算大小需按场景校准"
+  ],
+  "verification": "极小预算 → budget_capped 消息",
+  "value": "high",
+  "landed_at": "pulse-data-engine/scripts/compliance_qa.py + experiments/token_budget.py"
+}

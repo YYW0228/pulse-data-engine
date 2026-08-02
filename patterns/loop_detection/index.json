@@ -1,0 +1,20 @@
+{
+  "name": "loop_detection",
+  "source": {
+    "repo": "DeerFlow",
+    "license": "MIT",
+    "file": "agents/middlewares/loop_detection_middleware.py"
+  },
+  "category": "orchestration",
+  "core_idea": "tool_call hash + 滑动窗口, 重复≥N次终止 (loop_capped)",
+  "status": "migrated",
+  "future_proof": "变简单 (模型更强循环更少, 但检测机制仍简单有用)",
+  "adaptation": "compliance_qa.py _loop_detector 单例 (第5次重复终止)",
+  "pitfalls": [
+    "合法重复调用误判 (需白名单)",
+    "窗口大小需按场景调"
+  ],
+  "verification": "连续5次相同问题 → loop_capped 消息",
+  "value": "high",
+  "landed_at": "pulse-data-engine/scripts/compliance_qa.py + experiments/loop_detection.py"
+}

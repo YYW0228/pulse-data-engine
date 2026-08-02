@@ -1,0 +1,20 @@
+{
+  "name": "prefix_cache_stability",
+  "source": {
+    "repo": "DeepSeek-Reasonix",
+    "license": "MIT",
+    "file": "internal/agent/cache_shape.go"
+  },
+  "category": "cost",
+  "core_idea": "PrefixShape: 稳定 system prompt + append-only 历史 → 缓存命中率↑ 成本↓",
+  "status": "migrated",
+  "future_proof": "不变 (成本优化永远有价值)",
+  "adaptation": "compliance_qa.py system_prompt 版本化 + history 透传",
+  "pitfalls": [
+    "system prompt 改动 = 全量缓存失效",
+    "history 必须 append-only 不重写"
+  ],
+  "verification": "多轮对话第2轮起命中率 83-85%",
+  "value": "high",
+  "landed_at": "pulse-data-engine/scripts/compliance_qa.py + experiments/prefix_cache.py"
+}
