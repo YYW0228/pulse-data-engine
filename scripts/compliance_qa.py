@@ -110,8 +110,12 @@ def mmr_rerank(candidates: list[dict], query_vec, top_k: int) -> list[dict]:
     return selected
 
 
-def compile_context(query: str, top_k: int = 3) -> list[dict]:
-    """Context Compiler: 检索 → 过滤 → 重要性加权 MMR 重排 → 长度裁剪"""
+def compile_context(query: str, top_k: int = 3, mask_metadata: bool = False) -> list[dict]:
+    """Context Compiler: 检索 → 过滤 → 重要性加权 MMR 重排 → 长度裁剪
+
+    mask_metadata=True: 观察屏蔽 (observation masking) —
+      只给 LLM 文档内容, 不暴露相似度/内部评分 (防 prompt 泄露 + 防注入利用)
+    """
     model = get_model()
     qvec = model.encode(query, normalize_embeddings=True)
 
@@ -137,6 +141,14 @@ def compile_context(query: str, top_k: int = 3) -> list[dict]:
             break
         budgeted.append(c)
         total_chars += c["char_len"]
+
+    # 5. observation masking: 剥离内部元数据
+    if mask_metadata:
+        budgeted = [
+            {"doc": c["doc"], "title": c["title"], "content": c["content"],
+             "hits": None, "char_len": c["char_len"], "importance": None}
+            for c in budgeted
+        ]
 
     return budgeted
 
@@ -181,15 +193,31 @@ def _get_api_key() -> str | None:
     return None
 
 
-def answer(query: str, top_k: int = 3) -> str:
-    """检索 + DeepSeek 回答 (带引用) + 可观测性埋点"""
+def answer(query: str, top_k: int = 3, mask_metadata: bool = True) -> str:
+    """检索 + DeepSeek 回答 (带引用) + 可观测性埋点
+
+    mask_metadata=True (默认): 生产回答屏蔽内部评分 (observation masking),
+    检索依据仅供展示层 (前端单独用 compile_context 获取)
+    """
     t0 = time.time()
-    chunks = compile_context(query, top_k)
+    # 先编译 (带内部评分, 供路由决策)
+    chunks = compile_context(query, top_k, mask_metadata=False)
     compile_ms = (time.time() - t0) * 1000
 
     if not chunks:
         _record_metric(query, compile_ms, 0, 0, 0, 0, False, "no_chunks")
         return "未找到相关文档。换个问法试试。"
+
+    # Model 路由 (用未屏蔽的相似度决策)
+    model_name = _route_model(query, chunks)
+
+    # observation masking: 生产回答剥离内部评分
+    if mask_metadata:
+        chunks = [
+            {"doc": c["doc"], "title": c["title"], "content": c["content"],
+             "hits": None, "char_len": c["char_len"], "importance": None}
+            for c in chunks
+        ]
 
     # 构建上下文
     context = "\n\n---\n\n".join(
@@ -219,9 +247,6 @@ def answer(query: str, top_k: int = 3) -> str:
 """
 
     try:
-        # ── Model 路由层 (7层: 小模型默认 + 复杂度升级) ──
-        model_name = _route_model(query, chunks)
-
         resp = httpx.post(
             "https://api.deepseek.com/v1/chat/completions",
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
