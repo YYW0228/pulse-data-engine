@@ -27,12 +27,14 @@ def record(
     tokens_out: int,
     success: bool,
     error: str = "",
+    model: str = "deepseek-chat",
 ) -> None:
     """记录一次问答指标 (JSONL 追加)"""
     METRICS_PATH.parent.mkdir(parents=True, exist_ok=True)
     entry = {
         "ts": time.strftime("%Y-%m-%d %H:%M:%S"),
         "query": query[:100],
+        "model": model,
         "ms": round(ms, 1),
         "chunks": chunks,
         "citations": citations,

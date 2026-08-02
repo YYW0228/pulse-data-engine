@@ -141,6 +141,33 @@ def compile_context(query: str, top_k: int = 3) -> list[dict]:
     return budgeted
 
 
+def _route_model(query: str, chunks: list[dict]) -> str:
+    """Model 路由层 — 小模型默认, 复杂度/低置信度升级 frontier
+
+    路由信号:
+      1. 查询长度 > 60 字 → 复杂问题
+      2. 检索块数 == 0 → 需推理 (升级)
+      3. 平均相似度 < 0.6 → 知识库弱覆盖, 需更强推理
+      4. 含法规/条款/多主题 → 复杂 (如 "第X条" "跨境" "合规流程")
+
+    模型映射 (DeepSeek):
+      小模型: deepseek-chat (便宜, 默认 80%+)
+      frontier: deepseek-reasoner (关键路径)
+    """
+    # 复杂度信号
+    if len(query) > 60:
+        return "deepseek-reasoner"
+    if not chunks:
+        return "deepseek-reasoner"
+    avg_sim = sum(c["hits"] for c in chunks) / len(chunks)
+    if avg_sim < 0.6:
+        return "deepseek-reasoner"
+    complex_kw = ["第", "条", "跨境", "流程", "评估", "合规体系", "法律责任", "处罚"]
+    if any(k in query for k in complex_kw):
+        return "deepseek-reasoner"
+    return "deepseek-chat"
+
+
 def _get_api_key() -> str | None:
     """从环境变量或 .env 读取 DeepSeek key"""
     key = os.environ.get("DEEPSEEK_API_KEY")
@@ -192,11 +219,14 @@ def answer(query: str, top_k: int = 3) -> str:
 """
 
     try:
+        # ── Model 路由层 (7层: 小模型默认 + 复杂度升级) ──
+        model_name = _route_model(query, chunks)
+
         resp = httpx.post(
             "https://api.deepseek.com/v1/chat/completions",
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             json={
-                "model": "deepseek-chat",
+                "model": model_name,
                 "messages": [{"role": "user", "content": prompt}],
                 "temperature": 0.3,
                 "max_tokens": 1000,
@@ -209,7 +239,7 @@ def answer(query: str, top_k: int = 3) -> str:
         # 引用计数: 回答中 [文档: 出现次数
         citations = answer_text.count("文档:")
         _record_metric(query, (time.time() - t0) * 1000, len(chunks), citations,
-                       tokens_in_estimate, tokens_out, True)
+                       tokens_in_estimate, tokens_out, True, model=model_name)
         return answer_text
     except Exception as e:
         _record_metric(query, (time.time() - t0) * 1000, len(chunks), 0,
