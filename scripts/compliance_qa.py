@@ -16,75 +16,28 @@ import duckdb
 
 DB_PATH = Path("data/compliance.duckdb")
 
-
 def retrieve(query: str, top_k: int = 3) -> list[dict]:
-    """关键词检索 — 从合规文档库找相关块"""
-    # 中文关键词提取: 优先 4 字词, 过滤垃圾碎片
-    stopwords = {"的", "了", "是", "什么", "怎么", "如何", "要求", "需要", "应该", "一个", "这个", "那个", "我们", "你们", "他们", "吗", "呢", "啊", "吧", "与", "和", "及", "对", "在", "有", "要", "服务", "生成"}
+    """向量语义检索 — DuckDB VSS 余弦相似度"""
+    from sentence_transformers import SentenceTransformer
 
-    def _clean(seg: str) -> bool:
-        """过滤无意义碎片: 含停用字/单字重复/纯字母杂音"""
-        if any(s in seg for s in stopwords):
-            return False
-        return len(set(seg)) > 1  # "AAA" 或 "AA" 无意义
+    model = SentenceTransformer("BAAI/bge-small-zh-v1.5")
+    qvec = model.encode(query, normalize_embeddings=True)
 
-    keywords: set[str] = set()
-    # 第一轮: 4 字词
-    for start in range(len(query) - 3):
-        seg = query[start:start+4]
-        if _clean(seg):
-            keywords.add(seg)
-    # 第二轮: 补 3 字词 (4字词不足时)
-    if len(keywords) < 6:
-        for start in range(len(query) - 2):
-            seg = query[start:start+3]
-            if _clean(seg):
-                keywords.add(seg)
-    # 第三轮: 英文/数字专词
-    for m in re.finditer(r"[A-Za-z]{2,}|\d+", query):
-        keywords.add(m.group())
-    keywords = {k for k in keywords if len(k) >= 2}
-    if not keywords:
-        keywords = {"AI"}  # 兜底
-    keywords = list(keywords)[:15]
-    # SQL 检索: 包含任意关键词, 标题命中加权
-    conditions = " OR ".join(f"content LIKE '%{k}%'" for k in keywords)
-    title_conditions = " OR ".join(f"title LIKE '%{k}%'" for k in keywords)
     con = duckdb.connect(str(DB_PATH))
+    con.execute("LOAD vss")
+    con.execute("SET hnsw_enable_experimental_persistence = true")
     rows = con.execute(f"""
         SELECT doc_name, title, content, char_len,
-               CASE WHEN {title_conditions} THEN 3 ELSE 0 END as title_bonus
+               list_cosine_similarity(embedding, ?) as sim
         FROM compliance_chunks
-        WHERE {conditions}
-        ORDER BY title_bonus DESC, char_len ASC
-        LIMIT {top_k * 15}
-    """).fetchall()
+        ORDER BY sim DESC
+        LIMIT {top_k * 2}
+    """, [qvec.tolist()]).fetchall()
     con.close()
 
-    # 打分: 命中关键词数 + 标题命中加权 + 长度惩罚 (过短块不相关)
-    scored = []
-    for doc, title, content, clen, tbonus in rows:
-        hits = sum(1 for k in keywords if k in content)
-        # 长度惩罚: <50 字太短, >4000 太散
-        len_penalty = 0
-        if clen < 80:
-            len_penalty = -2
-        elif clen > 4000:
-            len_penalty = -1
-        scored.append((hits * 2 + tbonus + len_penalty, doc, title, content, clen))
-    scored.sort(key=lambda x: -x[0])
-
-    # 按文档去重: 同一文档最多取 3 块 (LLM 自己判断哪块最相关)
-    doc_counts: dict[str, int] = {}
-    deduped = []
-    for score, doc, title, content, clen in scored:
-        doc_counts[doc] = doc_counts.get(doc, 0) + 1
-        if doc_counts[doc] <= 3:
-            deduped.append((score, doc, title, content, clen))
-
     return [
-        {"doc": d, "title": t, "content": c[:3000], "hits": h}
-        for h, d, t, c, _ in deduped[:top_k]
+        {"doc": d, "title": t, "content": c[:3000], "hits": round(float(s), 3)}
+        for d, t, c, _clen, s in rows
     ]
 
 
