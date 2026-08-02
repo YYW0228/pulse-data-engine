@@ -1,0 +1,13 @@
+[Unit]
+Description=Pulse Data Engine - WASM SQL 查询服务
+After=network.target
+
+[Service]
+WorkingDirectory=/root/projects/pulse-data-engine
+ExecStart=/root/projects/pulse-data-engine/.venv/bin/python -m pulse.wasm_server --port 8000 --host 0.0.0.0
+Restart=always
+RestartSec=3
+Environment=PYTHONPATH=/root/projects/pulse-data-engine
+
+[Install]
+WantedBy=multi-user.target

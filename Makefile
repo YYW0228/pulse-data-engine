@@ -72,6 +72,38 @@ up:
 	@echo "  🎬 Dagster:   http://localhost:3000 (dagster dev)"
 	@echo "  📨 Telegram:  data/telegram_inbox.jsonl"
 
+# ── 端口管理 ─────────────────────────────────────────────────────────
+ports:
+	$(UV) python -m scripts.ports
+
+ports-check:
+	$(UV) python -m scripts.ports --check
+
+ports-clean:
+	$(UV) python -m scripts.ports --clean
+
+# ── Systemd 服务 ─────────────────────────────────────────────────────
+install-services:
+	@echo "安装 Pulse systemd 服务..."
+	@for f in deploy/*.service; do \
+		cp $$f /etc/systemd/system/; \
+		systemctl daemon-reload; \
+		systemctl enable $$(basename $$f) 2>/dev/null; \
+	done
+	@echo "✅ 已安装, 用 make services-start 启动"
+
+services-start:
+	@systemctl start pulse-dashboard pulse-compliance pulse-wasm pulse-metrics pulse-telegram
+
+services-stop:
+	@systemctl stop pulse-dashboard pulse-compliance pulse-wasm pulse-metrics pulse-telegram
+
+services-status:
+	@systemctl status pulse-dashboard pulse-compliance pulse-wasm pulse-metrics pulse-telegram --no-pager | grep -E "●|Active"
+
+services-logs:
+	@journalctl -u pulse-dashboard -u pulse-compliance -u pulse-wasm -u pulse-metrics -u pulse-telegram --no-pager -n 20
+
 # ── 停服务 ────────────────────────────────────────────────────────────
 down:
 	-pkill -f pulse.metrics_server 2>/dev/null

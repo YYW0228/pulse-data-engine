@@ -1,0 +1,13 @@
+[Unit]
+Description=Pulse Data Engine - Prometheus Metrics
+After=network.target
+
+[Service]
+WorkingDirectory=/root/projects/pulse-data-engine
+ExecStart=/root/projects/pulse-data-engine/.venv/bin/python -m pulse.metrics_server --port 9464 --host 0.0.0.0
+Restart=always
+RestartSec=3
+Environment=PYTHONPATH=/root/projects/pulse-data-engine
+
+[Install]
+WantedBy=multi-user.target

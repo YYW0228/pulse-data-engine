@@ -1,0 +1,13 @@
+[Unit]
+Description=Pulse Data Engine - AI 合规问答助手
+After=network.target
+
+[Service]
+WorkingDirectory=/root/projects/pulse-data-engine
+ExecStart=/root/projects/pulse-data-engine/.venv/bin/streamlit run serve_compliance.py --server.port 8502 --server.headless true --server.address 0.0.0.0
+Restart=always
+RestartSec=3
+Environment=PYTHONPATH=/root/projects/pulse-data-engine
+
+[Install]
+WantedBy=multi-user.target
