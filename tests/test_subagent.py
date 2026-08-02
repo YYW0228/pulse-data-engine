@@ -57,16 +57,21 @@ def test_service_intent_reject():
     assert "抱歉" in result["answer"]
 
 
-def test_service_task_sources():
-    """服务层接受不同 Task 来源"""
+def test_service_task_sources(monkeypatch):
+    """服务层接受不同 Task 来源 (mock 问答, 不依赖本地 DB/LLM)"""
     import sys as _sys
     from pathlib import Path as _P
 
     _sys.path.insert(0, str(_P(__file__).resolve().parent.parent / "scripts"))
 
+    import compliance_service as svc_mod
     from compliance_service import ComplianceService
 
     from pulse.task import Task
+
+    # mock 问答层 (避免依赖 compliance.duckdb 和 LLM)
+    monkeypatch.setattr(svc_mod, "qa_answer", lambda *a, **kw: "根据资料需要完成算法备案 [文档: cac.md | 章节: 一]")
+    monkeypatch.setattr(svc_mod, "review_answer", lambda *a, **kw: None)
 
     svc = ComplianceService()
     for source, task in [
