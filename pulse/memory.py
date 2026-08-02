@@ -52,7 +52,8 @@ class MemoryStore:
 
     def _ensure_schema(self) -> None:
         """记忆表带一致性字段: content_hash (冲突检测) + last_access (遗忘策略)"""
-        self._con.execute("""
+        con = self.con  # property 保证非 None
+        con.execute("""
             CREATE TABLE IF NOT EXISTS memory_entries (
                 key VARCHAR PRIMARY KEY,
                 doc_name VARCHAR,
@@ -67,15 +68,15 @@ class MemoryStore:
             )
         """)
         # chunks 表补一致性字段 (若缺)
-        tables = [r[0] for r in self._con.execute(
+        tables = [r[0] for r in con.execute(
             "SELECT table_name FROM information_schema.tables WHERE table_schema='main'"
         ).fetchall()]
         if "compliance_chunks" in tables:
-            cols = [r[0] for r in self._con.execute("DESCRIBE compliance_chunks").fetchall()]
+            cols = [r[0] for r in con.execute("DESCRIBE compliance_chunks").fetchall()]
             if "content_hash" not in cols:
-                self._con.execute("ALTER TABLE compliance_chunks ADD COLUMN content_hash VARCHAR")
+                con.execute("ALTER TABLE compliance_chunks ADD COLUMN content_hash VARCHAR")
             if "last_access" not in cols:
-                self._con.execute("ALTER TABLE compliance_chunks ADD COLUMN last_access TIMESTAMP")
+                con.execute("ALTER TABLE compliance_chunks ADD COLUMN last_access TIMESTAMP")
 
     # ── 1. Write-ahead log ────────────────────────────────────────────
     def _wal_append(self, op: str, key: str, payload: dict) -> None:
