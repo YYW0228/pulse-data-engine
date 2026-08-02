@@ -340,6 +340,9 @@ def answer(query: str, top_k: int = 3, mask_metadata: bool = True) -> str:
         )
         data = resp.json()
         answer_text = data["choices"][0]["message"]["content"]
+        # 空回答重试 (上游偶发空 content — Error Handling)
+        if not answer_text or not answer_text.strip():
+            answer_text = _retry_empty_answer(api_key, prompt, model_name)
         tokens_out = data.get("usage", {}).get("completion_tokens", len(answer_text) // 2)
         # 引用计数: 回答中 [文档: 出现次数
         citations = answer_text.count("文档:")
@@ -358,6 +361,30 @@ def answer(query: str, top_k: int = 3, mask_metadata: bool = True) -> str:
             tracer.step("error", {"error": str(e)[:100]})
             tracer.save({"success": False, "error": str(e)[:100]})
         raise
+
+
+def _retry_empty_answer(api_key: str, prompt: str, model_name: str) -> str:
+    """空回答重试 (上游偶发) — 重试 1 次, 仍空返回友好错误"""
+    import httpx
+
+    try:
+        resp = httpx.post(
+            "https://api.deepseek.com/v1/chat/completions",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json={
+                "model": model_name,
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0.5,  # 略升温打破重复
+                "max_tokens": 1000,
+            },
+            timeout=60,
+        )
+        text = resp.json()["choices"][0]["message"]["content"]
+        if text and text.strip():
+            return text
+    except Exception:
+        pass
+    return "抱歉，模型暂时无法生成回答，请稍后重试。" + "\n\n(回答为空 — 上游模型偶发异常，已重试)" + "\n\n引用来源：无（未生成回答）"
 
 
 def _record_metric(query: str, ms: float, chunks: int, citations: int,
