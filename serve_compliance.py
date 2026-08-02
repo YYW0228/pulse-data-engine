@@ -49,15 +49,20 @@ if "messages" not in st.session_state:
 
 
 def ask(query: str) -> str:
-    """调用 compliance_qa 回答 (含检索块调试信息)"""
+    """调用 compliance_qa 回答 (含检索块调试信息 + 置信度评估)"""
     from compliance_qa import answer, compile_context
 
-    # 编译检索块 (供展示)
+    # 编译检索块 (供展示 + 置信度评估)
     try:
         chunks = compile_context(query, top_k=3)
         debug = "\n\n---\n**📎 检索依据 (相似度):**\n"
         for c in chunks:
             debug += f"- `{c['doc'][:40]}` · {c['title'][:30]} · sim={c['hits']}\n"
+
+        # 置信度评估: 平均相似度 < 0.6 → 低置信, 建议人工复核
+        avg_sim = sum(c["hits"] for c in chunks) / max(len(chunks), 1) if chunks else 0
+        if avg_sim < 0.6:
+            debug += f"\n⚠️ **低置信度提醒** (平均相似度 {avg_sim:.2f} < 0.6): 知识库可能未充分覆盖此问题，建议人工复核后再用于决策。"
     except Exception:
         debug = ""
 
