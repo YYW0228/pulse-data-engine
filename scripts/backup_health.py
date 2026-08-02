@@ -66,15 +66,22 @@ def check() -> dict:
             uncommitted = git_uncommitted(repo)
             last_push = git_last_push(repo)
             age_h = (time.time() - last_push) / 3600 if last_push else 999
-            healthy = uncommitted == 0 and age_h < MAX_UNPUSHED_AGE_HOURS
+            # Tier 1/2: 48h 内须 push; Tier 3 (存档): 只需无未提交 (远端 CI 保活)
+            is_archive = repo in TIER3
+            push_fresh = age_h < MAX_UNPUSHED_AGE_HOURS or is_archive
+            healthy = uncommitted == 0 and push_fresh
             results["repos"][repo] = {
                 "uncommitted": uncommitted,
                 "last_push_hours": round(age_h, 1),
                 "healthy": healthy,
+                "tier": "archive" if is_archive else "active",
             }
             if not healthy:
                 results["ok"] = False
-                results["alerts"].append(f"{repo}: 未提交 {uncommitted} / push {age_h:.0f}h 前")
+                if not is_archive:
+                    results["alerts"].append(f"{repo}: 未提交 {uncommitted} / push {age_h:.0f}h 前")
+                else:
+                    results["alerts"].append(f"{repo}: 未提交 {uncommitted}")
         except Exception as e:
             results["repos"][repo] = {"error": str(e), "healthy": False}
             results["ok"] = False
