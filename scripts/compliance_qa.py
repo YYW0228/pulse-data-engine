@@ -248,12 +248,13 @@ def answer(query: str, top_k: int = 3) -> str:
 
 
 def _record_metric(query: str, ms: float, chunks: int, citations: int,
-                   tokens_in: int, tokens_out: int, success: bool, error: str = "") -> None:
+                   tokens_in: int, tokens_out: int, success: bool, error: str = "",
+                   model: str = "deepseek-chat") -> None:
     """记录问答指标 (失败不阻断主流程)"""
     try:
         from compliance_metrics import record
 
-        record(query, ms, chunks, citations, tokens_in, tokens_out, success, error)
+        record(query, ms, chunks, citations, tokens_in, tokens_out, success, error, model)
     except Exception:
         pass
 
