@@ -42,6 +42,7 @@ ignore = ["BLE001"]
 "tests/*" = ["F401", "F841"]
 "scripts/*" = ["BLE001", "E722", "F541", "PLW1510", "S110", "RUF059"]
 "pulse/fetchers/scrapling_fetcher.py" = ["S110", "PLW1510"]
+"pulse/parsing.py" = ["S110"]
 "pulse/runner.py" = ["S110"]
 "pulse/assets.py" = ["S110"]
 
