@@ -85,13 +85,13 @@ def index_docs(source: Path, rebuild: bool = False) -> dict:
     """索引目录下所有 md 文档 + 生成向量"""
     con = duckdb.connect(str(DB_PATH))
     # 兜底: 显式设置扩展目录 (systemd 环境 HOME 可能异常) — 必须在 LOAD 之前
-    for ext_dir in (Path("/root/.duckdb/extensions"), Path.home() / ".duckdb" / "extensions"):
-        if ext_dir.exists():
-            con.execute(f"SET extension_directory='{ext_dir}'")
-            break
+    # 兜底: 显式设置扩展目录 (systemd 环境 HOME 可能异常; 本机/CI home 均可写)
+    ext_dir = Path.home() / ".duckdb" / "extensions"
+    if ext_dir.exists():
+        con.execute(f"SET extension_directory='{ext_dir}'")
+    con.execute("INSTALL vss")  # 幂等: CI 环境自动下载到 home
     con.execute("LOAD vss")
     con.execute("SET hnsw_enable_experimental_persistence = true")
-
     if rebuild:
         con.execute("DROP TABLE IF EXISTS compliance_chunks")
     con.execute("""
