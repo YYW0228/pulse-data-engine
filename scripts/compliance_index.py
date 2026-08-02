@@ -81,7 +81,7 @@ def get_embedder():
     return SentenceTransformer("BAAI/bge-small-zh-v1.5")
 
 
-def index_docs(source: Path, rebuild: bool = False) -> dict:
+def index_docs(source: Path, rebuild: bool = False, include_jsonl: bool = False) -> dict:
     """索引目录下所有 md 文档 + 生成向量"""
     con = duckdb.connect(str(DB_PATH))
     # 兜底: 显式设置扩展目录 (systemd 环境 HOME 可能异常) — 必须在 LOAD 之前
@@ -109,6 +109,9 @@ def index_docs(source: Path, rebuild: bool = False) -> dict:
         con.execute("DELETE FROM compliance_chunks")
 
     files = sorted(source.rglob("*.md"))
+    # 支持 doc_parser 输出的 JSONL (客户文档: pdf/docx → 解析块)
+    if include_jsonl:
+        files = files + sorted(source.rglob("*.jsonl"))
     doc_id = 0
     total_chunks = 0
     total_chars = 0
@@ -120,10 +123,15 @@ def index_docs(source: Path, rebuild: bool = False) -> dict:
 
     for f in files:
         doc_id += 1
-        text = f.read_text(encoding="utf-8")
-        blocks = split_markdown(text)
+        if f.suffix == ".jsonl":
+            blocks = _load_jsonl_blocks(f)
+        else:
+            text = f.read_text(encoding="utf-8")
+            blocks = split_markdown(text)
         if not blocks:
             continue
+        # 增量替换: 同 doc_name 旧块先删 (数据替换的核心语义)
+        con.execute("DELETE FROM compliance_chunks WHERE doc_name=?", [f.name])
         # 批量编码该文档所有块
         contents = [b["content"] for b in blocks]
         vecs = model.encode(contents, normalize_embeddings=True)
@@ -146,6 +154,23 @@ def index_docs(source: Path, rebuild: bool = False) -> dict:
     return {"docs": doc_id, "chunks": total_chunks, "chars": total_chars, "embed_seconds": round(elapsed, 1)}
 
 
+def _load_jsonl_blocks(f: Path) -> list[dict]:
+    """加载 doc_parser 输出的 JSONL 块"""
+    import json
+
+    blocks = []
+    for line in f.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        try:
+            b = json.loads(line)
+            b["doc_name"] = b.get("doc_name", f.name)
+            blocks.append(b)
+        except json.JSONDecodeError:
+            continue
+    return blocks
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -154,6 +179,7 @@ def main():
         help="md 文档目录",
     )
     parser.add_argument("--rebuild", action="store_true", help="重建索引")
+    parser.add_argument("--include-jsonl", action="store_true", help="包含 doc_parser 输出的 JSONL")
     args = parser.parse_args()
 
     source = Path(args.source)
@@ -161,7 +187,7 @@ def main():
         print(f"❌ 目录不存在: {source}")
         return
 
-    result = index_docs(source, rebuild=args.rebuild)
+    result = index_docs(source, rebuild=args.rebuild, include_jsonl=args.include_jsonl)
     print(f"✅ 索引完成")
     print(f"   文档: {result['docs']} 个")
     print(f"   分块: {result['chunks']} 个")
