@@ -72,25 +72,47 @@ if "messages" not in st.session_state:
 
 
 def ask(query: str) -> str:
-    """调用 compliance_qa 回答 (含检索块调试信息 + 置信度评估)"""
-    from compliance_qa import answer, compile_context
+    """调用 compliance_qa 回答 (含检索块调试信息 + 置信度评估 + 审批闸门)"""
+    from compliance_qa import answer, classify_intent, compile_context
+
+    # 意图分类: 非事实查询直接拒绝 (不调 LLM)
+    intent = classify_intent(query)
+    if intent != "factual_query":
+        from compliance_qa import INTENT_REJECT
+
+        return INTENT_REJECT.get(intent, INTENT_REJECT["instruction_attack"])
 
     # 编译检索块 (供展示 + 置信度评估)
+    chunks = []
     try:
         chunks = compile_context(query, top_k=3)
         debug = "\n\n---\n**📎 检索依据 (相似度):**\n"
         for c in chunks:
             debug += f"- `{c['doc'][:40]}` · {c['title'][:30]} · sim={c['hits']}\n"
 
-        # 置信度评估: 平均相似度 < 0.6 → 低置信, 建议人工复核
+        # 置信度评估: 平均相似度 < 0.6 → 低置信, 需人工审批闸门
         avg_sim = sum(c["hits"] for c in chunks) / max(len(chunks), 1) if chunks else 0
         if avg_sim < 0.6:
-            debug += f"\n⚠️ **低置信度提醒** (平均相似度 {avg_sim:.2f} < 0.6): 知识库可能未充分覆盖此问题，建议人工复核后再用于决策。"
+            debug += (
+                f"\n⚠️ **低置信度审批闸门** (平均相似度 {avg_sim:.2f} < 0.6):\n"
+                f"本回答将标记为『待人工复核』，不建议直接用于决策。\n"
+                f"请合规专员确认后再引用。"
+            )
     except Exception:
         debug = ""
 
     result = answer(query)
-    return result + debug
+
+    # 审批流: 低置信度回答附加审批标记
+    approval = ""
+    try:
+        avg_sim = sum(c["hits"] for c in chunks) / max(len(chunks), 1) if chunks else 0
+        if avg_sim < 0.6:
+            approval = "\n\n---\n**🛂 审批状态: 待人工复核** — 此回答基于低置信度检索生成，需合规专员确认后使用。"
+    except Exception:
+        pass
+
+    return result + debug + approval
 
 
 # 显示历史消息
