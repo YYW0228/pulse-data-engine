@@ -77,3 +77,57 @@ def test_get_store_factory():
     store = get_store("duckdb")
     assert isinstance(store, DuckDBStore)
     store.close()
+
+
+def test_duckdb_store_empty_search(tmp_path):
+    """边界: 空库搜索返回空列表 (不崩溃)"""
+    from pulse.vector_store import DuckDBStore
+
+    store = DuckDBStore(tmp_path / "v.duckdb")
+    r = store.search([0.1] * 512, top_k=5)
+    assert r == []
+    # 空库 delete 也安全
+    assert store.delete_doc("anything.md") == 0
+    store.close()
+
+
+def test_duckdb_store_bulk_upsert(tmp_path):
+    """边界: 大批量 upsert (200 块) 性能与计数正确"""
+    from pulse.vector_store import DuckDBStore
+
+    store = DuckDBStore(tmp_path / "v.duckdb")
+    chunks = [
+        {"doc_name": f"doc_{i % 10}.md", "title": f"节{j}",
+         "content": f"内容{i}-{j}内容内容内容内容内容", "importance": 0.5 + (i % 5) * 0.1}
+        for i in range(200) for j in range(20)
+    ]
+    embeddings = [[round((i + j) / 1000, 6)] * 512 for i in range(200) for j in range(20)]
+    n = store.upsert_chunks(chunks, embeddings)
+    assert n == 4000
+    assert store.count() == 4000
+    # 部分替换: 只重新 upsert doc_0 的块 (i%10==0 → 400 块) → 其余 doc 保留
+    doc0_chunks = [c for c in chunks if c["doc_name"] == "doc_0.md"]
+    assert len(doc0_chunks) == 400
+    store.upsert_chunks(doc0_chunks, [[0.5] * 512] * 400)
+    assert store.count() == 4000  # doc_0 替换, doc_1..9 保留, 总量不变
+    store.close()
+
+
+def test_duckdb_store_complex_filter(tmp_path):
+    """边界: 复杂过滤 (doc_name + title 组合)"""
+    from pulse.vector_store import DuckDBStore
+
+    store = DuckDBStore(tmp_path / "v.duckdb")
+    store.upsert_chunks(
+        [
+            {"doc_name": "a.md", "title": "节1", "content": "内容一内容一内容一内容一"},
+            {"doc_name": "a.md", "title": "节2", "content": "内容二内容二内容二内容二"},
+            {"doc_name": "b.md", "title": "节1", "content": "内容三内容三内容三内容三"},
+        ],
+        [[0.1] * 512, [0.2] * 512, [0.3] * 512],
+    )
+    # doc_name + title 双条件
+    r = store.search([0.1] * 512, top_k=5, filters={"doc_name": "a.md", "title": "节1"})
+    assert len(r) == 1
+    assert r[0]["title"] == "节1"
+    store.close()
