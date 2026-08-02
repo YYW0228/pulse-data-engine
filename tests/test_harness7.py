@@ -37,6 +37,54 @@ def test_memory_write_and_conflict(tmp_path):
     store.close()
 
 
+def test_memory_consolidate(tmp_path):
+    """T5: 记忆合并去重 (同前缀 → 保留最高重要性)"""
+    from pulse.memory import MemoryStore
+
+    store = MemoryStore(tmp_path / "m.duckdb")
+    store._ensure_schema()
+    for i in range(12):
+        store.write_memory("conversation_extract",
+                           f"我们公司主要做企业AI培训课程业务，服务制造业客户（第{i}条）",
+                           f"内容{i}", 0.6)
+    deleted = store.consolidate(threshold=10)
+    assert deleted == 11
+    remain = store.con.execute(
+        "SELECT COUNT(*) FROM memory_entries WHERE doc_name='conversation_extract'"
+    ).fetchone()
+    assert remain is not None and remain[0] == 1
+    store.close()
+
+
+def test_memory_extract():
+    """T5: 对话提取记忆 (长消息+关键词加权)"""
+    from pulse.memory import MemoryStore
+
+    store = MemoryStore(":memory:")
+    conv = [
+        {"role": "user", "content": "我们公司是做企业AI培训的，主要面向制造业客户提供合规课程和咨询服务"},
+        {"role": "user", "content": "记住：合规问答必须带引用来源，不能编造法律法规条文和处罚金额数字"},
+        {"role": "user", "content": "短"},
+    ]
+    extracted = store.extract_from_conversation(conv)
+    assert len(extracted) == 2  # 2 条 > 30 字
+    assert any(e["importance"] == 0.8 for e in extracted)  # 含"记住"高重要
+    store.close()
+
+
+def test_memory_write_and_upsert(tmp_path):
+    """T5: write_memory upsert 语义 (同 key 覆盖)"""
+    from pulse.memory import MemoryStore
+
+    store = MemoryStore(tmp_path / "m2.duckdb")
+    store._ensure_schema()
+    store.write_memory("doc1", "title1", "内容A", 0.6)
+    store.write_memory("doc1", "title1", "内容B", 0.8)  # 覆盖
+    n = store.con.execute("SELECT COUNT(*) FROM memory_entries WHERE key='doc1::title1'").fetchone()
+    assert n is not None and n[0] == 1
+    store.close()
+
+
 def test_memory_forget_policy(tmp_path):
     from pulse.memory import MemoryStore
 

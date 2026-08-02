@@ -176,6 +176,76 @@ class MemoryStore:
             WHERE doc_name=? AND title=?
         """, [doc, title])
 
+    # ── T5: 记忆提取 + 合并 (源自 mini-claude-code s09) ──
+
+    def extract_from_conversation(self, conversation: list[dict]) -> list[dict]:
+        """从对话提取新记忆 (extraction)
+
+        启发式提取 (无 LLM 依赖, 规则型):
+        - user 消息 > 30 字 → 视为潜在偏好/事实 (带重要性 0.6)
+        - 含'我喜欢/我偏好/我们公司/记住' → 高重要性 0.8
+
+        返回: 提取的记忆列表 [{doc, title, content, importance}]
+        """
+        extracted: list[dict] = []
+        HIGH_KW = ("我喜欢", "我偏好", "我们公司", "记住", "重要", "必须", "禁止")
+        for m in conversation:
+            if m.get("role") != "user":
+                continue
+            text = m.get("content", "").strip()
+            if len(text) < 30:  # 中文每字 1 char, len 按字符计
+                continue
+            importance = 0.8 if any(k in text for k in HIGH_KW) else 0.6
+            extracted.append({
+                "doc": "conversation_extract",
+                "title": text[:40],
+                "content": text[:500],
+                "importance": importance,
+            })
+        return extracted
+
+    def write_memory(self, doc: str, title: str, content: str,
+                     importance: float = 0.6) -> str:
+        """写记忆到 memory_entries (WAL 保护, T5 用)"""
+        key = f"{doc}::{title}"
+        self._ensure_schema()
+        self.con.execute("DELETE FROM memory_entries WHERE key=?", [key])
+        self.con.execute("""
+            INSERT INTO memory_entries
+            (key, doc_name, title, content, importance, created_at, last_access)
+            VALUES (?, ?, ?, ?, ?, now(), now())
+        """, [key, doc, title, content, importance])
+        return key
+
+    def consolidate(self, threshold: int = 10) -> int:
+        """合并去重 (consolidation): conversation_extract 记忆超过阈值时,
+        同 title 前缀去重, 保留最高重要性 (mini-claude-code: 文件数到 10 触发合并)
+
+        操作 memory_entries 表 (MemoryStore 自有表)
+        返回: 合并删除的条数
+        """
+        rows = self.con.execute("""
+            SELECT key, doc_name, title, importance FROM memory_entries
+            WHERE doc_name='conversation_extract'
+            ORDER BY importance DESC
+        """).fetchall()
+
+        if len(rows) <= threshold:
+            return 0
+
+        seen: dict[str, float] = {}  # title 前缀 → 最高 importance
+        deleted = 0
+        for key, doc, title, imp in rows:
+            prefix = title[:20]
+            imp_val = float(imp or 0.0)
+            if prefix in seen:
+                seen[prefix] = max(seen[prefix], imp_val)
+                self.con.execute("DELETE FROM memory_entries WHERE key=?", [key])
+                deleted += 1
+            else:
+                seen[prefix] = imp_val
+
+        return deleted
 
 if __name__ == "__main__":
     # 演示三机制

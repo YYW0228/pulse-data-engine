@@ -17,6 +17,7 @@ Context Compiler 核心:
 import argparse
 import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -31,6 +32,20 @@ DB_PATH = Path("data/compliance.duckdb")
 # ── Context Compiler 参数 ────────────────────────────────────────────
 SIM_THRESHOLD = 0.55      # 低于此相似度的块不进 context
 MAX_CONTEXT_CHARS = 6000  # context 总长度预算
+LARGE_CHUNK_CHARS = 4000  # 单块超过此长度 → 转存文件 (reactive_compaction)
+DUMP_DIR = Path(__file__).resolve().parent.parent / "data" / "context_dumps"
+
+
+def _dump_large_chunk(doc: str, title: str, content: str) -> str:
+    """大块转存: 返回落盘路径 (mini-claude-code toolResultBudget 思路)"""
+    try:
+        DUMP_DIR.mkdir(parents=True, exist_ok=True)
+        safe = re.sub(r"[^\w\-]", "_", f"{doc[:30]}_{title[:20]}")[:60]
+        path = DUMP_DIR / f"{safe}.md"
+        path.write_text(f"# {doc} — {title}\n\n{content}", encoding="utf-8")
+        return str(path)
+    except Exception:
+        return "context_dumps/"
 MMR_LAMBDA = 0.7          # MMR 多样性权重 (0.7 = 相关性与多样性平衡)
 
 # ── Embedding 模型缓存 (全局单例) ────────────────────────────────────
@@ -128,10 +143,15 @@ def compile_context(query: str, top_k: int = 3, mask_metadata: bool = False) -> 
     # 3. MMR 多样性重排 + 重要性加权 (综合分 = λ*sim + (1-λ)*importance - (1-λ)*dup)
     reranked = mmr_rerank(filtered, qvec, top_k)
 
-    # 4. 长度预算裁剪
+    # 4. 长度预算裁剪 + 大输出存盘 (reactive_compaction Layer 1: 源自 mini-claude-code)
     total_chars = 0
     budgeted = []
     for c in reranked:
+        # 大块 (>LARGE_CHUNK_CHARS) 转存文件, 上下文只留路径+预览
+        if c["char_len"] > LARGE_CHUNK_CHARS:
+            dump_path = _dump_large_chunk(c["doc"], c["title"], c["content"])
+            c["content"] = f"[大文档已转存: {dump_path}]\n预览: {c['content'][:500]}..."
+            c["char_len"] = min(c["char_len"], 800)
         if total_chars + c["char_len"] > MAX_CONTEXT_CHARS:
             # 超预算: 截断内容到剩余预算
             remaining = MAX_CONTEXT_CHARS - total_chars
@@ -386,6 +406,12 @@ def answer(query: str, top_k: int = 3, mask_metadata: bool = True,
             timeout=60,
         )
         data = resp.json()
+        # 反应式压缩: prompt_is_too_long → 截断 history 重试 (mini-claude-code)
+        if resp.status_code == 400 and "prompt_is_too_long" in resp.text:
+            compacted = _reactive_compact(messages, history)
+            if compacted is not None:
+                return _llm_call_with_retry(api_key, compacted, model_name, query, chunks,
+                                            history, t0, tracer)
         answer_text = data["choices"][0]["message"]["content"]
         # 空回答重试 (上游偶发空 content — Error Handling)
         if not answer_text or not answer_text.strip():
@@ -435,6 +461,53 @@ def _retry_empty_answer(api_key: str, messages: list[dict[str, str]], model_name
     except Exception:
         pass
     return "抱歉，模型暂时无法生成回答，请稍后重试。" + "\n\n(回答为空 — 上游模型偶发异常，已重试)" + "\n\n引用来源：无（未生成回答）"
+
+
+def _reactive_compact(messages: list[dict], history: list[dict] | None) -> list[dict] | None:
+    """反应式压缩: prompt_is_too_long → 保留 system + 最近 4 轮, 其余丢弃
+    (mini-claude-code 思路: 错误永不暴露给用户)"""
+    try:
+        if not history or len(history) <= 6:
+            return None  # 历史太短, 压缩无意义
+        keep = history[-6:]  # 保留最近 3 轮 (user+assistant 对)
+        compacted = [messages[0]] + keep
+        # 重新组装当前问题消息 (最后一个 user 消息保留完整内容)
+        for m in messages[-1:]:
+            compacted.append(m)
+        return compacted
+    except Exception:
+        return None
+
+
+def _llm_call_with_retry(api_key: str, messages: list[dict], model_name: str,
+                         query: str, chunks: list[dict], history: list[dict] | None,
+                         t0: float, tracer) -> str:
+    """压缩后重发请求 (反应式压缩的第二阶段)"""
+    import httpx
+
+    try:
+        resp = httpx.post(
+            "https://api.deepseek.com/v1/chat/completions",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json={"model": model_name, "messages": messages,
+                  "temperature": 0.3, "max_tokens": 1000},
+            timeout=60,
+        )
+        data = resp.json()
+        answer_text = data["choices"][0]["message"]["content"]
+        tokens_out = data.get("usage", {}).get("completion_tokens", len(answer_text) // 2)
+        citations = answer_text.count("文档:")
+        _record_metric(query, (time.time() - t0) * 1000, len(chunks), citations,
+                       len(json.dumps(messages, ensure_ascii=False)) // 2, tokens_out,
+                       True, model=model_name, cache_hit=bool(history))
+        if tracer:
+            tracer.step("reactive_compact", {"tokens_out": tokens_out, "citations": citations})
+            tracer.save({"success": True, "model": model_name, "citations": citations,
+                         "reactive_compact": True})
+        return answer_text
+    except Exception:
+        return "抱歉，上下文过长且压缩重试失败，请开始新对话。\n\n(上下文超限 — 已尝试自动压缩)"
+
 
 
 def _record_metric(query: str, ms: float, chunks: int, citations: int,
