@@ -1,0 +1,2 @@
+{"op": "write", "key": "demo.md::测试", "ts": 1785666606.5103068, "payload": {"doc": "demo.md", "title": "测试", "hash": "94bad6fd73056354"}}
+{"op": "write_done", "key": "demo.md::测试", "ts": 1785666606.9672117, "payload": {}}
