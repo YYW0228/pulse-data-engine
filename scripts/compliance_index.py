@@ -10,6 +10,7 @@ scripts/compliance_index.py — 合规文档索引器 v2 (向量版)
 """
 
 import argparse
+import re
 import time
 from pathlib import Path
 
@@ -19,11 +20,34 @@ DB_PATH = Path("data/compliance.duckdb")
 
 
 def split_markdown(text: str, min_chars: int = 200) -> list[dict]:
-    """按 ## 标题切分 md 文档为块"""
+    """按 ## 标题切分 md 文档为块 + 重要性评分
+
+    重要性评分 (0-1):
+      - 标题层级: ## (0.9) > ### (0.7) > #### (0.5) > 其他 (0.3)
+      - 实体密度: 含法规/条款编号 (第X条/办法/规定/指南) 加权
+      - 时效性: 含年份 (2024-2026) 加权
+    """
     blocks = []
     lines = text.splitlines()
     current_title = "文档头部"
     current_content: list[str] = []
+
+    def _importance(title: str, content: str) -> float:
+        score = 0.3  # 基础分
+        # 标题层级
+        if title.startswith("## "):
+            score = 0.9
+        elif title.startswith("### "):
+            score = 0.7
+        elif title.startswith("#### "):
+            score = 0.5
+        # 法规/条款实体
+        if re.search(r"第[一二三四五六七八九十\d]+条|办法|规定|指南|条例|法律|办法|标准", title + content[:500]):
+            score += 0.15
+        # 时效性 (近3年)
+        if re.search(r"20(2[4-6])", content[:1000]):
+            score += 0.05
+        return round(min(score, 1.0), 2)
 
     for line in lines:
         if line.startswith("## "):
@@ -42,6 +66,10 @@ def split_markdown(text: str, min_chars: int = 200) -> list[dict]:
             "title": current_title,
             "content": "\n".join(current_content).strip(),
         })
+
+    # 加重要性
+    for b in blocks:
+        b["importance"] = _importance(b["title"], b["content"])
 
     return blocks
 
@@ -73,7 +101,8 @@ def index_docs(source: Path, rebuild: bool = False) -> dict:
             title VARCHAR,
             content VARCHAR,
             char_len INTEGER,
-            embedding FLOAT[512]
+            embedding FLOAT[512],
+            importance FLOAT
         )
     """)
     if rebuild:
@@ -102,8 +131,8 @@ def index_docs(source: Path, rebuild: bool = False) -> dict:
             total_chunks += 1
             total_chars += len(b["content"])
             con.execute(
-                "INSERT INTO compliance_chunks VALUES (?,?,?,?,?,?)",
-                [doc_id, f.name, b["title"], b["content"], len(b["content"]), vec.tolist()],
+                "INSERT INTO compliance_chunks VALUES (?,?,?,?,?,?,?)",
+                [doc_id, f.name, b["title"], b["content"], len(b["content"]), vec.tolist(), b["importance"]],
             )
 
     # 建向量索引

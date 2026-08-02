@@ -58,7 +58,8 @@ def retrieve(query: str, top_k: int = 5) -> list[dict]:
     con.execute("SET hnsw_enable_experimental_persistence = true")
     rows = con.execute(f"""
         SELECT doc_name, title, content, char_len,
-               list_cosine_similarity(embedding, ?) as sim
+               list_cosine_similarity(embedding, ?) as sim,
+               importance
         FROM compliance_chunks
         ORDER BY sim DESC
         LIMIT {top_k * 3}
@@ -66,8 +67,8 @@ def retrieve(query: str, top_k: int = 5) -> list[dict]:
     con.close()
 
     return [
-        {"doc": d, "title": t, "content": c[:3000], "hits": round(float(s), 3), "char_len": cl}
-        for d, t, c, cl, s in rows
+        {"doc": d, "title": t, "content": c[:3000], "hits": round(float(s), 3), "char_len": cl, "importance": float(imp or 0.3)}
+        for d, t, c, cl, s, imp in rows
     ]
 
 
@@ -85,14 +86,16 @@ def mmr_rerank(candidates: list[dict], query_vec, top_k: int) -> list[dict]:
         best_score = float("-inf")
         for i, cand in enumerate(remaining):
             sim_q = cand["hits"]  # 与查询的相似度
-            # 与已选块的最大相似度 (同文档视为高度重复, 跨文档低重复)
+            importance = cand.get("importance", 0.3)  # 块重要性
+            # 与已选块的最大重复度 (同文档视为高度重复, 跨文档低重复)
             max_dup = 0.0
             for sel in selected:
                 if sel["doc"] == cand["doc"]:
                     max_dup = max(max_dup, 0.9)
                 else:
                     max_dup = max(max_dup, 0.3)
-            score = MMR_LAMBDA * sim_q - (1 - MMR_LAMBDA) * max_dup
+            # 综合分: 相关性 + 重要性 - 重复惩罚
+            score = MMR_LAMBDA * sim_q + (1 - MMR_LAMBDA) * importance - (1 - MMR_LAMBDA) * max_dup
             if score > best_score:
                 best_score = score
                 best_idx = i
@@ -104,7 +107,7 @@ def mmr_rerank(candidates: list[dict], query_vec, top_k: int) -> list[dict]:
 
 
 def compile_context(query: str, top_k: int = 3) -> list[dict]:
-    """Context Compiler: 检索 → 过滤 → MMR 重排 → 长度裁剪"""
+    """Context Compiler: 检索 → 过滤 → 重要性加权 MMR 重排 → 长度裁剪"""
     model = get_model()
     qvec = model.encode(query, normalize_embeddings=True)
 
@@ -114,7 +117,7 @@ def compile_context(query: str, top_k: int = 3) -> list[dict]:
     # 2. 相似度阈值过滤
     filtered = [c for c in candidates if c["hits"] >= SIM_THRESHOLD]
 
-    # 3. MMR 多样性重排
+    # 3. MMR 多样性重排 + 重要性加权 (综合分 = λ*sim + (1-λ)*importance - (1-λ)*dup)
     reranked = mmr_rerank(filtered, qvec, top_k)
 
     # 4. 长度预算裁剪
