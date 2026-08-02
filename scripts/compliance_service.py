@@ -56,7 +56,21 @@ class ComplianceService:
         # 3. 结构化解析
         parsed: ParseResult = self.parser.parse(raw)
 
-        # 4. 组装结果
+        # 4. 子 Agent 评审 (主-从模式, 独立找茬)
+        review = None
+        if parsed.answer is not None and not parsed.fallback:
+            try:
+                from pulse.subagent import review_answer
+
+                review = review_answer(
+                    task.intent,
+                    parsed.answer.answer,
+                    [c.model_dump() for c in parsed.answer.citations],
+                )
+            except Exception:
+                review = None
+
+        # 5. 组装结果
         return {
             "task_id": task.task_id,
             "source": task.source,
@@ -67,6 +81,11 @@ class ComplianceService:
             "confidence": parsed.answer.confidence if parsed.answer else "low",
             "disclaimer": parsed.answer.disclaimer if parsed.answer else "",
             "fallback": parsed.fallback,
+            "review": {
+                "verdict": review.verdict,
+                "issues": review.issues,
+                "suggestions": review.suggestions,
+            } if review else None,
             "ms": round((time.time() - t0) * 1000, 1),
         }
 
