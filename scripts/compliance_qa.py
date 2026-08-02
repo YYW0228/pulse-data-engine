@@ -393,8 +393,11 @@ def answer(query: str, top_k: int = 3, mask_metadata: bool = True,
         tokens_out = data.get("usage", {}).get("completion_tokens", len(answer_text) // 2)
         # 引用计数: 回答中 [文档: 出现次数
         citations = answer_text.count("文档:")
+        # PrefixCache 命中估算: 有 history (追加式) → 前缀稳定 → 命中
+        cache_hit = bool(history)
         _record_metric(query, (time.time() - t0) * 1000, len(chunks), citations,
-                       tokens_in_estimate, tokens_out, True, model=model_name)
+                       tokens_in_estimate, tokens_out, True, model=model_name,
+                       cache_hit=cache_hit)
         if tracer:
             tracer.step("answer", {"model": model_name, "tokens_in": tokens_in_estimate,
                                    "tokens_out": tokens_out, "citations": citations,
@@ -436,12 +439,13 @@ def _retry_empty_answer(api_key: str, messages: list[dict[str, str]], model_name
 
 def _record_metric(query: str, ms: float, chunks: int, citations: int,
                    tokens_in: int, tokens_out: int, success: bool, error: str = "",
-                   model: str = "deepseek-chat") -> None:
+                   model: str = "deepseek-chat", cache_hit: bool | None = None) -> None:
     """记录问答指标 (失败不阻断主流程)"""
     try:
         from compliance_metrics import record
 
-        record(query, ms, chunks, citations, tokens_in, tokens_out, success, error, model)
+        record(query, ms, chunks, citations, tokens_in, tokens_out, success, error,
+               model, cache_hit)
     except Exception:
         pass
 
