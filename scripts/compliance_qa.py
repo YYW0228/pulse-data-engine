@@ -241,14 +241,24 @@ INTENT_REJECT = {
     "creative": "我是 AI 合规问答助手。这个问题不在合规知识库范围内，请提出企业 AI 合规相关问题。",
 }
 
+# Loop Detection 单例 (DeerFlow 模式: 重复检索模式 → 终止)
+try:
+    from experiments.loop_detection import LoopDetector
+
+    _loop_detector: LoopDetector | None = LoopDetector(window_size=10, warn_threshold=3, hard_threshold=5)
+except Exception:
+    _loop_detector = None
+
 
 def answer(query: str, top_k: int = 3, mask_metadata: bool = True,
-           history: list[dict[str, str]] | None = None) -> str:
+           history: list[dict[str, str]] | None = None,
+           budget: dict | None = None) -> str:
     """检索 + DeepSeek 回答 (带引用) + 可观测性埋点
 
     mask_metadata=True (默认): 生产回答屏蔽内部评分 (observation masking),
     检索依据仅供展示层 (前端单独用 compile_context 获取)
     history: 历史对话 (append-only, PrefixCache 稳定化)
+    budget: token 预算闸门 {max_tokens_in, max_tokens_out} (超限 capped)
     """
     t0 = time.time()
     # Trace 开始
@@ -285,8 +295,35 @@ def answer(query: str, top_k: int = 3, mask_metadata: bool = True,
             tracer.save({"success": False, "error": "no_chunks"})
         return "未找到相关文档。换个问法试试。"
 
+    # ── Token Budget 闸门 (源自 DeerFlow, 超限 capped 不抛异常) ──
+    if budget:
+        try:
+            from experiments.token_budget import TokenBudget
+
+            check = TokenBudget(**budget).check()
+            if not check["allowed"]:
+                _record_metric(query, (time.time() - t0) * 1000, 0, 0, 0, 0,
+                               True, error=f"budget:{check['reason']}")
+                return f"⚠️ 会话预算已用尽 ({check['reason']})。请开始新会话。\n\n引用来源：无（预算限制）"
+        except Exception:
+            pass  # 预算检查失败不阻断
+
     # Model 路由 (用未屏蔽的相似度决策)
     model_name = _route_model(query, chunks)
+
+    # ── Loop Detection (源自 DeerFlow: 重复检索模式 → 终止) ──
+    try:
+        from experiments.loop_detection import LoopDetector
+
+        fp = LoopDetector.fingerprint(query, [c["doc"] for c in chunks])
+        status = _loop_detector.record(fp) if _loop_detector else "ok"
+        if status == "capped":
+            _record_metric(query, (time.time() - t0) * 1000, len(chunks), 0, 0, 0,
+                           True, error="loop_capped")
+            return "⚠️ 检测到重复检索循环 (loop_capped)，已停止以避免浪费。请换一种问法或开始新话题。\n\n引用来源：无（循环终止）"
+    except Exception:
+        pass  # 循环检测失败不阻断
+
     if tracer:
         tracer.step("route", {"model": model_name, "avg_sim": round(sum(c["hits"] for c in chunks) / len(chunks), 3)})
 
