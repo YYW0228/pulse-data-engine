@@ -9,7 +9,6 @@ scripts/compliance_qa.py — 合规文档问答 (RAG 最小闭环)
 import argparse
 import json
 import os
-import re
 from pathlib import Path
 
 import duckdb
