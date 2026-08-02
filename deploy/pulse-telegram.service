@@ -8,6 +8,7 @@ ExecStart=/root/projects/pulse-data-engine/.venv/bin/python -m scripts.telegram_
 Restart=always
 RestartSec=5
 Environment=PYTHONPATH=/root/projects/pulse-data-engine
+Environment=HOME=/root
 
 [Install]
 WantedBy=multi-user.target

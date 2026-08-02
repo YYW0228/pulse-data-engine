@@ -56,6 +56,11 @@ def get_embedder():
 def index_docs(source: Path, rebuild: bool = False) -> dict:
     """索引目录下所有 md 文档 + 生成向量"""
     con = duckdb.connect(str(DB_PATH))
+    # 兜底: 显式设置扩展目录 (systemd 环境 HOME 可能异常) — 必须在 LOAD 之前
+    for ext_dir in (Path("/root/.duckdb/extensions"), Path.home() / ".duckdb" / "extensions"):
+        if ext_dir.exists():
+            con.execute(f"SET extension_directory='{ext_dir}'")
+            break
     con.execute("LOAD vss")
     con.execute("SET hnsw_enable_experimental_persistence = true")
 

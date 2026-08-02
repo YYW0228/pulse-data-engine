@@ -8,6 +8,7 @@ ExecStart=/root/projects/pulse-data-engine/.venv/bin/streamlit run serve.py --se
 Restart=always
 RestartSec=3
 Environment=PYTHONPATH=/root/projects/pulse-data-engine
+Environment=HOME=/root
 
 [Install]
 WantedBy=multi-user.target

@@ -23,6 +23,11 @@ def retrieve(query: str, top_k: int = 3) -> list[dict]:
     qvec = model.encode(query, normalize_embeddings=True)
 
     con = duckdb.connect(str(DB_PATH))
+    # 兜底: 显式设置扩展目录 (固定路径, 不依赖 HOME 环境变量) — 必须在 LOAD 之前
+    for ext_dir in (Path("/root/.duckdb/extensions"), Path.home() / ".duckdb" / "extensions"):
+        if ext_dir.exists():
+            con.execute(f"SET extension_directory='{ext_dir}'")
+            break
     con.execute("LOAD vss")
     con.execute("SET hnsw_enable_experimental_persistence = true")
     rows = con.execute(f"""

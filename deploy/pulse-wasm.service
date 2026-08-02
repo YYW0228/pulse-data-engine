@@ -8,6 +8,7 @@ ExecStart=/root/projects/pulse-data-engine/.venv/bin/python -m pulse.wasm_server
 Restart=always
 RestartSec=3
 Environment=PYTHONPATH=/root/projects/pulse-data-engine
+Environment=HOME=/root
 
 [Install]
 WantedBy=multi-user.target
