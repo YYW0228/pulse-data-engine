@@ -193,6 +193,55 @@ def _get_api_key() -> str | None:
     return None
 
 
+def classify_intent(query: str) -> str:
+    """意图-检索前置分类器 (Meta-Loop 提案1)
+
+    标签:
+      factual_query  — 事实查询, 需检索 (正常合规问题)
+      roleplay       — 角色扮演/私人助理 (不检索, 拒绝或引导)
+      instruction_attack — 指令注入/越狱 (拒绝, 安全路径)
+      creative       — 通用写作/非知识库问题 (不检索)
+      probe          — 隐私/敏感探测 (拒绝)
+
+    轻量规则实现 (0 成本, 无 LLM 调用):
+      关键词 + 模式匹配, 覆盖 Meta-Loop 发现的失败样本
+    """
+    q = query.strip()
+
+    # 指令注入 / 越狱
+    injection_kw = ["忽略", "忽略之前", "忘记", "系统提示", "system prompt", "越狱",
+                    "绕过", "以上规则不适用", "现在开始你", "扮演"]
+    if any(k in q for k in injection_kw):
+        return "instruction_attack"
+
+    # 角色扮演 / 私人助理
+    roleplay_kw = ["私人助理", "帮我写请假", "写一封", "你是我的", "从现在开始你",
+                   "以法务身份", "以律师身份", "请以", "法务人员吗"]
+    if any(k in q for k in roleplay_kw):
+        return "roleplay"
+
+    # 隐私/敏感探测
+    probe_kw = ["列出所有", "所有文档中", "敏感数据", "具体金额", "公司名称", "泄露",
+                "客户数据", "身份证", "手机号"]
+    if any(k in q for k in probe_kw):
+        return "probe"
+
+    # 通用写作/非知识库
+    creative_kw = ["写一篇", "写段", "作文", "诗歌", "小说", "邮件模板"]
+    if any(k in q for k in creative_kw):
+        return "creative"
+
+    return "factual_query"
+
+
+INTENT_REJECT = {
+    "instruction_attack": "抱歉，我不能执行这个请求。作为合规助手，我只基于合规知识库回答企业 AI 合规相关问题。",
+    "roleplay": "我是 AI 合规问答助手，专注于企业 AI 合规咨询。如果你有合规相关问题（算法备案、数据合规、AI 治理等），我很乐意回答。",
+    "probe": "抱歉，我不能提供涉及敏感数据或内部信息的汇总。如有具体合规问题，请直接提问，我将基于公开合规资料回答。",
+    "creative": "我是 AI 合规问答助手。这个问题不在合规知识库范围内，请提出企业 AI 合规相关问题。",
+}
+
+
 def answer(query: str, top_k: int = 3, mask_metadata: bool = True) -> str:
     """检索 + DeepSeek 回答 (带引用) + 可观测性埋点
 
@@ -207,6 +256,20 @@ def answer(query: str, top_k: int = 3, mask_metadata: bool = True) -> str:
         tracer = Tracer(query, source="cli")
     except Exception:
         tracer = None
+
+    # ── 意图分类 (Meta-Loop 提案1: 前置拦截非事实查询) ──
+    intent = classify_intent(query)
+    if tracer:
+        tracer.step("intent", {"intent": intent})
+    if intent != "factual_query":
+        rejection = INTENT_REJECT.get(intent, INTENT_REJECT["instruction_attack"])
+        _record_metric(query, (time.time() - t0) * 1000, 0, 0, 0, 0, True,
+                       error=f"intent:{intent}")
+        if tracer:
+            tracer.step("reject", {"intent": intent})
+            tracer.save({"success": True, "intent": intent, "rejected": True})
+        return rejection
+
     # 先编译 (带内部评分, 供路由决策)
     chunks = compile_context(query, top_k, mask_metadata=False)
     compile_ms = (time.time() - t0) * 1000
