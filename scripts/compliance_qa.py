@@ -200,16 +200,30 @@ def answer(query: str, top_k: int = 3, mask_metadata: bool = True) -> str:
     检索依据仅供展示层 (前端单独用 compile_context 获取)
     """
     t0 = time.time()
+    # Trace 开始
+    try:
+        from pulse.trace import Tracer
+
+        tracer = Tracer(query, source="cli")
+    except Exception:
+        tracer = None
     # 先编译 (带内部评分, 供路由决策)
     chunks = compile_context(query, top_k, mask_metadata=False)
     compile_ms = (time.time() - t0) * 1000
 
+    if tracer:
+        tracer.step("retrieve", {"chunks": len(chunks), "top_sim": round(chunks[0]["hits"], 3) if chunks else 0,
+                                 "docs": sorted({c["doc"] for c in chunks})[:3]})
     if not chunks:
         _record_metric(query, compile_ms, 0, 0, 0, 0, False, "no_chunks")
+        if tracer:
+            tracer.save({"success": False, "error": "no_chunks"})
         return "未找到相关文档。换个问法试试。"
 
     # Model 路由 (用未屏蔽的相似度决策)
     model_name = _route_model(query, chunks)
+    if tracer:
+        tracer.step("route", {"model": model_name, "avg_sim": round(sum(c["hits"] for c in chunks) / len(chunks), 3)})
 
     # observation masking: 生产回答剥离内部评分
     if mask_metadata:
@@ -218,6 +232,9 @@ def answer(query: str, top_k: int = 3, mask_metadata: bool = True) -> str:
              "hits": None, "char_len": c["char_len"], "importance": None}
             for c in chunks
         ]
+    if tracer:
+        tracer.step("compile", {"final_chunks": len(chunks),
+                                "total_chars": sum(c["char_len"] or 0 for c in chunks)})
 
     # 构建上下文
     context = "\n\n---\n\n".join(
@@ -265,10 +282,18 @@ def answer(query: str, top_k: int = 3, mask_metadata: bool = True) -> str:
         citations = answer_text.count("文档:")
         _record_metric(query, (time.time() - t0) * 1000, len(chunks), citations,
                        tokens_in_estimate, tokens_out, True, model=model_name)
+        if tracer:
+            tracer.step("answer", {"model": model_name, "tokens_in": tokens_in_estimate,
+                                   "tokens_out": tokens_out, "citations": citations,
+                                   "answer_len": len(answer_text)})
+            tracer.save({"success": True, "model": model_name, "citations": citations})
         return answer_text
     except Exception as e:
         _record_metric(query, (time.time() - t0) * 1000, len(chunks), 0,
                        tokens_in_estimate, 0, False, str(e)[:80])
+        if tracer:
+            tracer.step("error", {"error": str(e)[:100]})
+            tracer.save({"success": False, "error": str(e)[:100]})
         raise
 
 

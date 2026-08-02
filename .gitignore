@@ -17,6 +17,7 @@ data/logs/
 data/metrics/
 data/telegram_inbox.*
 data/compliance_metrics.jsonl
+data/compliance_traces.jsonl
 pulse/data/*.duckdb
 
 # Secrets
