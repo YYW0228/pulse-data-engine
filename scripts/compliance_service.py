@@ -71,7 +71,7 @@ class ComplianceService:
                 review = None
 
         # 5. 组装结果
-        return {
+        result = {
             "task_id": task.task_id,
             "source": task.source,
             "intent": task.intent[:100],
@@ -88,6 +88,26 @@ class ComplianceService:
             } if review else None,
             "ms": round((time.time() - t0) * 1000, 1),
         }
+
+        # 6. 证据包 Artifact (Kun 证据化交付 — 可验收交付物)
+        try:
+            from pulse.artifacts import build_artifact
+
+            art = build_artifact(
+                task_id=task.task_id,
+                query=task.intent,
+                answer=result["answer"],
+                citations=result["citations"],
+                confidence=result["confidence"],
+                guardrails={"intent": intent, "approval_needed": result["confidence"] == "low"},
+                cost={"tokens_in": 0, "tokens_out": 0, "ms": result["ms"], "cost_usd": 0},
+                review=result["review"],
+            )
+            result["artifact_path"] = str(art.save())
+        except Exception:
+            result["artifact_path"] = None
+
+        return result
 
 
 def cli_entry(query: str, source: str = "cli") -> None:
