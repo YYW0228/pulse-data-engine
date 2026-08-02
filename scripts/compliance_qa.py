@@ -242,11 +242,13 @@ INTENT_REJECT = {
 }
 
 
-def answer(query: str, top_k: int = 3, mask_metadata: bool = True) -> str:
+def answer(query: str, top_k: int = 3, mask_metadata: bool = True,
+           history: list[dict[str, str]] | None = None) -> str:
     """检索 + DeepSeek 回答 (带引用) + 可观测性埋点
 
     mask_metadata=True (默认): 生产回答屏蔽内部评分 (observation masking),
     检索依据仅供展示层 (前端单独用 compile_context 获取)
+    history: 历史对话 (append-only, PrefixCache 稳定化)
     """
     t0 = time.time()
     # Trace 开始
@@ -313,18 +315,26 @@ def answer(query: str, top_k: int = 3, mask_metadata: bool = True) -> str:
 
     import httpx
 
-    prompt = f"""你是企业 AI 合规顾问。基于以下参考资料回答用户问题。
+    # ── PrefixCache 稳定化 (源自 Reasonix PrefixShape) ──
+    # 1. 稳定 system prompt (版本 hash 固定) → 缓存命中
+    # 2. 历史 append-only (不重写) → 已发送的命中
+    # 3. 检索块+问题放最后 (唯一变体) → 只付增量 token
+    system_prompt = f"""你是企业 AI 合规顾问。基于参考资料回答用户问题。
 规则:
 1. 只依据参考资料回答, 资料没有的不编造
 2. 每个要点后面必须标注引用来源, 格式: [文档: 文件名 | 章节: 章节名]
-3. 回答末尾必须单独列出"引用来源:" 清单 (所有用到的文档+章节)
+3. 回答末尾必须单独列出"引用来源:" 清单
 4. 不确定时明确说"资料中未找到"
 
-参考资料:
-{context}
-
-问题: {query}
+[system_prompt_version: v1.0]
 """
+    messages = [{"role": "system", "content": system_prompt}]
+    if history:
+        messages.extend(history)  # append-only, 不重写不排序
+    messages.append({
+        "role": "user",
+        "content": f"参考资料:\n{context}\n\n问题: {query}",
+    })
 
     try:
         resp = httpx.post(
@@ -332,7 +342,7 @@ def answer(query: str, top_k: int = 3, mask_metadata: bool = True) -> str:
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             json={
                 "model": model_name,
-                "messages": [{"role": "user", "content": prompt}],
+                "messages": messages,
                 "temperature": 0.3,
                 "max_tokens": 1000,
             },
@@ -342,7 +352,7 @@ def answer(query: str, top_k: int = 3, mask_metadata: bool = True) -> str:
         answer_text = data["choices"][0]["message"]["content"]
         # 空回答重试 (上游偶发空 content — Error Handling)
         if not answer_text or not answer_text.strip():
-            answer_text = _retry_empty_answer(api_key, prompt, model_name)
+            answer_text = _retry_empty_answer(api_key, messages, model_name)
         tokens_out = data.get("usage", {}).get("completion_tokens", len(answer_text) // 2)
         # 引用计数: 回答中 [文档: 出现次数
         citations = answer_text.count("文档:")
@@ -363,7 +373,7 @@ def answer(query: str, top_k: int = 3, mask_metadata: bool = True) -> str:
         raise
 
 
-def _retry_empty_answer(api_key: str, prompt: str, model_name: str) -> str:
+def _retry_empty_answer(api_key: str, messages: list[dict[str, str]], model_name: str) -> str:
     """空回答重试 (上游偶发) — 重试 1 次, 仍空返回友好错误"""
     import httpx
 
@@ -373,7 +383,7 @@ def _retry_empty_answer(api_key: str, prompt: str, model_name: str) -> str:
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             json={
                 "model": model_name,
-                "messages": [{"role": "user", "content": prompt}],
+                "messages": messages,
                 "temperature": 0.5,  # 略升温打破重复
                 "max_tokens": 1000,
             },

@@ -71,8 +71,11 @@ if "messages" not in st.session_state:
     ]
 
 
-def ask(query: str) -> str:
-    """调用 compliance_qa 回答 (含检索块调试信息 + 置信度评估 + 审批闸门)"""
+def ask(query: str, history: list[dict[str, str]] | None = None) -> str:
+    """调用 compliance_qa 回答 (含检索块调试信息 + 置信度评估 + 审批闸门)
+
+    history: 多轮对话历史 (append-only, PrefixCache 稳定化)
+    """
     from compliance_qa import answer, classify_intent, compile_context
 
     # 意图分类: 非事实查询直接拒绝 (不调 LLM)
@@ -101,7 +104,7 @@ def ask(query: str) -> str:
     except Exception:
         debug = ""
 
-    result = answer(query)
+    result = answer(query, history=history)
 
     # 审批流: 低置信度回答附加审批标记
     approval = ""
@@ -129,7 +132,12 @@ if prompt := st.chat_input("输入你的合规问题..."):
     with st.chat_message("assistant"):
         with st.spinner("检索法规文档中..."):
             try:
-                response = ask(prompt)
+                # 构建 append-only 历史 (PrefixCache 稳定化)
+                history_msgs = []
+                for m in st.session_state.messages[:-1]:  # 排除当前问题
+                    if m["role"] in ("user", "assistant") and isinstance(m["content"], str):
+                        history_msgs.append({"role": m["role"], "content": m["content"][:4000]})
+                response = ask(prompt, history=history_msgs[-8:])  # 最近 4 轮
             except Exception as e:
                 response = f"❌ 回答失败: {e}\n\n请检查 embedding 模型和 DEEPSEEK_API_KEY 配置。"
 

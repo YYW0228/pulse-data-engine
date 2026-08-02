@@ -183,3 +183,52 @@ def test_tracer_roundtrip(tmp_path, monkeypatch):
     r = trace_mod.replay(entries[0]["run_id"])
     assert r is not None
     assert r["result"]["success"] is True
+
+
+# ── PrefixCache 稳定化 ──────────────────────────────────────────────
+
+def test_prefix_cache_messages_structure():
+    """messages 结构: system(稳定) + history(append) + 当前(变体)"""
+    from experiments.prefix_cache import STABLE_SYSTEM_PROMPT, build_messages
+
+    history = [
+        {"role": "user", "content": "第一问"},
+        {"role": "assistant", "content": "第一答"},
+    ]
+    msgs = build_messages("第二问", "检索块", history)
+    assert msgs[0]["role"] == "system"  # 稳定前缀
+    assert msgs[0]["content"] == STABLE_SYSTEM_PROMPT
+    assert len(msgs) == 4  # system + 2 history + 1 current
+    assert msgs[-1]["content"].startswith("参考资料:")
+    assert "第二问" in msgs[-1]["content"]
+
+
+def test_prefix_cache_shape_stable():
+    """同一 system prompt + 版本 → hash 稳定"""
+    from experiments.prefix_cache import STABLE_SYSTEM_PROMPT, SYSTEM_PROMPT_VERSION, prefix_shape
+
+    h1 = prefix_shape(STABLE_SYSTEM_PROMPT, SYSTEM_PROMPT_VERSION)
+    h2 = prefix_shape(STABLE_SYSTEM_PROMPT, SYSTEM_PROMPT_VERSION)
+    assert h1 == h2  # 稳定
+    # 版本变化 → hash 变 (强制缓存失效)
+    h3 = prefix_shape(STABLE_SYSTEM_PROMPT, "v2.0")
+    assert h1 != h3
+
+
+def test_prefix_cache_hit_rate_grows():
+    """多轮对话缓存命中率递增 (append-only)"""
+    from experiments.prefix_cache import build_messages, estimate_cached_tokens
+
+    history: list[dict[str, str]] = []
+    rates = []
+    for turn in range(1, 5):
+        msgs = build_messages(f"问题{turn}", f"检索{turn}", history)
+        stats = estimate_cached_tokens(msgs)
+        rates.append(stats["hit_rate"])
+        history.append({"role": "user", "content": f"问题{turn}"})
+        history.append({"role": "assistant", "content": f"回答{turn}"})
+
+    assert rates[0] == 0.0        # 第一轮无缓存
+    assert rates[1] > 80          # 第二轮起高命中
+    assert rates[2] >= rates[1]   # 递增
+    assert rates[3] >= rates[2]
