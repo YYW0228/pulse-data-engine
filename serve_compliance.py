@@ -41,6 +41,29 @@ st.sidebar.markdown(
     """
 )
 
+# ── 可观测性面板 (成本/效率仪表盘) ──────────────────────────────────
+st.sidebar.markdown("---")
+st.sidebar.markdown("## 📈 成本与效率")
+try:
+    import sys as _sys
+    from pathlib import Path as _Path
+
+    _sys.path.insert(0, str(_Path(__file__).resolve().parent / "scripts"))
+    from compliance_metrics import summarize
+
+    s = summarize(limit=200)
+    if s["total"] > 0:
+        st.sidebar.metric("总问答", s["total"])
+        st.sidebar.metric("成功率", f"{s['success_rate']*100:.0f}%")
+        st.sidebar.metric("平均耗时", f"{s['avg_ms']:.0f}ms")
+        st.sidebar.metric("平均 token", f"{s['avg_tokens_in']}→{s['avg_tokens_out']}")
+        st.sidebar.metric("平均引用", f"{s['avg_citations']}")
+        st.sidebar.metric("总成本", f"${s['total_cost_usd']:.4f}")
+    else:
+        st.sidebar.caption("暂无数据 — 先发一条问题")
+except Exception:
+    st.sidebar.caption("指标暂不可用")
+
 # 初始化会话状态
 if "messages" not in st.session_state:
     st.session_state.messages = [
