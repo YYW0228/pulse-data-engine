@@ -65,14 +65,15 @@ def test_service_task_sources(monkeypatch):
     _sys.path.insert(0, str(_P(__file__).resolve().parent.parent / "scripts"))
 
     import compliance_qa
-    import compliance_service as svc_mod
     from compliance_service import ComplianceService
 
+    import pulse.subagent
     from pulse.task import Task
 
     # mock 问答层 (避免依赖 compliance.duckdb 和 LLM)
     monkeypatch.setattr(compliance_qa, "answer", lambda *a, **kw: "根据资料需要完成算法备案 [文档: cac.md | 章节: 一]")
-    monkeypatch.setattr(svc_mod, "review_answer", lambda *a, **kw: None)
+    # review 在 handle 内局部导入 pulse.subagent — mock 其模块属性
+    monkeypatch.setattr(pulse.subagent, "review_answer", lambda *a, **kw: None)
 
     svc = ComplianceService()
     for source, task in [
