@@ -17,8 +17,12 @@ Context Compiler 核心:
 import argparse
 import json
 import os
+import sys
 import time
 from pathlib import Path
+
+# 确保 scripts/ 可导入 (compliance_metrics 等)
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import duckdb
 
@@ -151,22 +155,25 @@ def _get_api_key() -> str | None:
 
 
 def answer(query: str, top_k: int = 3) -> str:
-    """检索 + DeepSeek 回答 (带引用)"""
+    """检索 + DeepSeek 回答 (带引用) + 可观测性埋点"""
     t0 = time.time()
     chunks = compile_context(query, top_k)
     compile_ms = (time.time() - t0) * 1000
 
     if not chunks:
+        _record_metric(query, compile_ms, 0, 0, 0, 0, False, "no_chunks")
         return "未找到相关文档。换个问法试试。"
 
     # 构建上下文
     context = "\n\n---\n\n".join(
         f"[文档: {c['doc']} | 章节: {c['title']}]\n{c['content']}" for c in chunks
     )
+    tokens_in_estimate = len(context) // 2  # 中文约 2 字符/token
 
     api_key = _get_api_key()
     if not api_key:
         parts = [f"【{c['title']}】(来自 {c['doc']})\n{c['content'][:500]}" for c in chunks]
+        _record_metric(query, compile_ms, len(chunks), len(chunks), tokens_in_estimate, 0, True)
         return f"(编译耗时 {compile_ms:.0f}ms, 检索 {len(chunks)} 块)\n\n" + "\n\n".join(parts)
 
     import httpx
@@ -184,19 +191,41 @@ def answer(query: str, top_k: int = 3) -> str:
 问题: {query}
 """
 
-    resp = httpx.post(
-        "https://api.deepseek.com/v1/chat/completions",
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        json={
-            "model": "deepseek-chat",
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.3,
-            "max_tokens": 1000,
-        },
-        timeout=60,
-    )
-    data = resp.json()
-    return data["choices"][0]["message"]["content"]
+    try:
+        resp = httpx.post(
+            "https://api.deepseek.com/v1/chat/completions",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json={
+                "model": "deepseek-chat",
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0.3,
+                "max_tokens": 1000,
+            },
+            timeout=60,
+        )
+        data = resp.json()
+        answer_text = data["choices"][0]["message"]["content"]
+        tokens_out = data.get("usage", {}).get("completion_tokens", len(answer_text) // 2)
+        # 引用计数: 回答中 [文档: 出现次数
+        citations = answer_text.count("文档:")
+        _record_metric(query, (time.time() - t0) * 1000, len(chunks), citations,
+                       tokens_in_estimate, tokens_out, True)
+        return answer_text
+    except Exception as e:
+        _record_metric(query, (time.time() - t0) * 1000, len(chunks), 0,
+                       tokens_in_estimate, 0, False, str(e)[:80])
+        raise
+
+
+def _record_metric(query: str, ms: float, chunks: int, citations: int,
+                   tokens_in: int, tokens_out: int, success: bool, error: str = "") -> None:
+    """记录问答指标 (失败不阻断主流程)"""
+    try:
+        from compliance_metrics import record
+
+        record(query, ms, chunks, citations, tokens_in, tokens_out, success, error)
+    except Exception:
+        pass
 
 
 def main():
