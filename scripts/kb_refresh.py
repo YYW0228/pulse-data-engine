@@ -30,6 +30,8 @@ from pathlib import Path
 
 INTEL_SRC = Path("/root/DELIVERY_WORKSPACE/china-ai-governance/reports")
 INTEL_DST = Path(__file__).resolve().parent.parent / "data" / "scene2_intel"
+MARKET_SRC = Path("/opt/startalent/market_insight")  # job-scraper CI 写入 (runner 共享)
+MARKET_DST = Path(__file__).resolve().parent.parent / "data" / "market_knowledge"
 SCRAPER = Path("/root/projects/china-ai-governance/_intel_scraper_v2.py")
 INDEX_CMD = [
     sys.executable, "-m", "scripts.compliance_index",
@@ -46,6 +48,20 @@ def sync_reports() -> tuple[int, list[str]]:
     for src in sorted(INTEL_SRC.glob("intel-*.md")):
         if src.name not in existing:
             shutil.copy2(src, INTEL_DST / src.name)
+            added.append(src.name)
+    return len(added), added
+
+
+def sync_market_insight() -> tuple[int, list[str]]:
+    """同步市场洞察 (job-scraper CI 产物) → market_knowledge"""
+    MARKET_DST.mkdir(parents=True, exist_ok=True)
+    if not MARKET_SRC.exists():
+        return 0, []
+    existing = {p.name for p in MARKET_DST.glob("*.md")}
+    added: list[str] = []
+    for src in sorted(MARKET_SRC.glob("market-insight-*.md")):
+        if src.name not in existing:
+            shutil.copy2(src, MARKET_DST / src.name)
             added.append(src.name)
     return len(added), added
 
@@ -111,14 +127,25 @@ def main():
     else:
         result["scraper"] = "skipped (--no-scrape)"
 
-    # 2. 同步新报告
+    # 2. 同步新报告 (情报 + 市场)
     added_n, added = sync_reports()
     result["synced"] = added_n
     result["new_reports"] = added
+    m_added, m_added_names = sync_market_insight()
+    result["market_synced"] = m_added
+    result["market_new"] = m_added_names
 
-    # 3. 增量索引
+    # 3. 增量索引 (情报库 + 市场知识)
     idx = index()
+    # 市场知识独立索引 (幂等)
+    m_idx = subprocess.run(
+        [sys.executable, "-m", "scripts.compliance_index",
+         "--source", str(MARKET_DST), "--include-jsonl"],
+        capture_output=True, text=True, cwd=Path(__file__).resolve().parent.parent,
+        timeout=300,
+    )
     result["index"] = idx
+    result["market_index_exit"] = m_idx.returncode
 
     # 4. 验证
     v = verify()
@@ -131,7 +158,8 @@ def main():
     else:
         print(f"=== 知识库刷新 {result['ts']} ===")
         print(f"采集: {result['scraper']}")
-        print(f"同步: +{added_n} 份报告 {added}")
+        print(f"情报同步: +{added_n} 份报告 {added}")
+        print(f"市场同步: +{m_added} 份报告 {m_added_names}")
         print(f"索引: {idx}")
         print(f"对账: 总{result['verify']['total']}块 (情报{result['verify']['intel']}块)")
         print(f"耗时: {result['elapsed_s']}s")
