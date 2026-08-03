@@ -73,3 +73,25 @@ Memory:    WAL + 冲突 + 遗忘 + 提取 + 合并 (mini-claude-code)
 Guardrails: 意图 + 注入 + loop + 预算 + 对抗
 Observability: metrics + trace + cache_hit_rate + 成本面板
 ```
+
+## 七、信息管道全景 (2026-08-03 新增市场管道)
+
+```
+┌─ 管道 1: 法规情报 (china-ai-governance)
+│   intel_scraper (每日04:00) → kb_refresh → compliance.duckdb
+│   用途: 合规问答 + 知识保鲜 (护城河)
+│
+├─ 管道 2: 市场洞察 (job-scraper) ← 新增回流
+│   CI 每周2次 → collector.py → jobs.duckdb (1043 岗)
+│   → export_market_insight.py → markdown 报告
+│   → data/market_knowledge/ → 索引 → 知识库 (4 块)
+│   用途: 直播素材 + 销售话术 + 课程方向 + 市场问答
+│   实测: "市场最缺什么AI人才" → AI治理 5 痛点居首, 带 JD 证据
+│
+└─ 管道 3: 客户专属 (customer_onboard)
+    raw/ → 独立库 → 8502 切换
+    用途: 试点交付 (数据隔离 + 检索质量)
+
+知识库 483 块 = 法规 287 + 情报 + 市场 4 + 客户 (独立)
+三出口: 合规问答 8502 / 直播 Dashboard / 销售报告
+```
