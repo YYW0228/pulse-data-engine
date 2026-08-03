@@ -28,6 +28,20 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import duckdb
 
 DB_PATH = Path("data/compliance.duckdb")
+# 客户库查询 (compliance_index --db <name> 建的独立库)
+_CUSTOMER_DB: str | None = None
+
+
+def set_customer_db(db: str | None) -> None:
+    """切换客户库 (data/customers/<db>/<db>.duckdb), None=全局库"""
+    global _CUSTOMER_DB
+    _CUSTOMER_DB = db
+
+
+def _active_db() -> Path:
+    if _CUSTOMER_DB:
+        return Path(f"data/customers/{_CUSTOMER_DB}/{_CUSTOMER_DB}.duckdb")
+    return DB_PATH
 
 # ── Context Compiler 参数 ────────────────────────────────────────────
 SIM_THRESHOLD = 0.55      # 低于此相似度的块不进 context
@@ -67,7 +81,7 @@ def retrieve(query: str, top_k: int = 5) -> list[dict]:
     model = get_model()
     qvec = model.encode(query, normalize_embeddings=True)
 
-    con = duckdb.connect(str(DB_PATH))
+    con = duckdb.connect(str(_active_db()))
     # 兜底: 显式设置扩展目录 (systemd 环境 HOME 可能异常; 本机/CI home 均可写)
     ext_dir = Path.home() / ".duckdb" / "extensions"
     if ext_dir.exists():

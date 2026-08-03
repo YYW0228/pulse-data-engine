@@ -19,6 +19,17 @@ import duckdb
 DB_PATH = Path("data/compliance.duckdb")
 
 
+def get_db_path(db: str | None = None) -> Path:
+    """返回数据库路径 (支持每客户独立库)
+
+    db=None → 默认全局库 (data/compliance.duckdb)
+    db='acme' → data/customers/acme/acme.duckdb (客户隔离)
+    """
+    if not db:
+        return DB_PATH
+    return Path(f"data/customers/{db}/{db}.duckdb")
+
+
 def split_markdown(text: str, min_chars: int = 50) -> list[dict]:
     """按 ## 标题切分 md 文档为块 + 重要性评分
 
@@ -81,9 +92,15 @@ def get_embedder():
     return SentenceTransformer("BAAI/bge-small-zh-v1.5")
 
 
-def index_docs(source: Path, rebuild: bool = False, include_jsonl: bool = False) -> dict:
-    """索引目录下所有 md 文档 + 生成向量"""
-    con = duckdb.connect(str(DB_PATH))
+def index_docs(source: Path, rebuild: bool = False, include_jsonl: bool = False,
+               db: str | None = None) -> dict:
+    """索引目录下所有 md 文档 + 生成向量
+
+    db: 客户标识 — 独立库 (data/customers/<db>/<db>.duckdb), None=全局库
+    """
+    db_path = get_db_path(db)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    con = duckdb.connect(str(db_path))
     # 兜底: 显式设置扩展目录 (systemd 环境 HOME 可能异常) — 必须在 LOAD 之前
     # 兜底: 显式设置扩展目录 (systemd 环境 HOME 可能异常; 本机/CI home 均可写)
     ext_dir = Path.home() / ".duckdb" / "extensions"
@@ -180,6 +197,7 @@ def main():
     )
     parser.add_argument("--rebuild", action="store_true", help="重建索引")
     parser.add_argument("--include-jsonl", action="store_true", help="包含 doc_parser 输出的 JSONL")
+    parser.add_argument("--db", default=None, help="客户库标识 (独立库: data/customers/<db>/), 默认全局库")
     args = parser.parse_args()
 
     source = Path(args.source)
@@ -187,14 +205,16 @@ def main():
         print(f"❌ 目录不存在: {source}")
         return
 
-    result = index_docs(source, rebuild=args.rebuild, include_jsonl=args.include_jsonl)
+    result = index_docs(source, rebuild=args.rebuild, include_jsonl=args.include_jsonl,
+                        db=args.db)
+    db_label = get_db_path(args.db)
     print(f"✅ 索引完成")
     print(f"   文档: {result['docs']} 个")
     print(f"   分块: {result['chunks']} 个")
     print(f"   字符: {result['chars']:,}")
     print(f"   向量: 512维 HNSW 索引")
     print(f"   耗时: {result['embed_seconds']}s")
-    print(f"   数据库: {DB_PATH}")
+    print(f"   数据库: {db_label}")
 
 
 if __name__ == "__main__":
