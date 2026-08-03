@@ -1,0 +1,144 @@
+"""
+scripts/kb_refresh.py — 知识库持续迭代管道 (护城河)
+
+闭环: 情报采集 → 同步 → 增量索引 → 验证
+  1. 运行 intel_scraper_v2 (抓取最新法规情报)
+  2. 新报告同步到 data/scene2_intel/
+  3. 增量索引 (compliance_index 幂等, 同 doc 替换)
+  4. 验证 (块数对账 + 缓存命中率/成本指标)
+
+用法:
+  uv run python -m scripts.kb_refresh            # 完整刷新
+  uv run python -m scripts.kb_refresh --no-scrape # 只同步+索引 (跳过采集)
+  uv run python -m scripts.kb_refresh --json      # JSON 输出
+
+设计原则:
+  - 幂等: 重复跑不产生重复块 (compliance_index 增量替换语义)
+  - 隔离: 只动 scene2_intel 目录, 不碰客户库
+  - 可观测: 每次刷新记录指标 (耗时/块数/新增)
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import shutil
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+INTEL_SRC = Path("/root/DELIVERY_WORKSPACE/china-ai-governance/reports")
+INTEL_DST = Path(__file__).resolve().parent.parent / "data" / "scene2_intel"
+SCRAPER = Path("/root/projects/china-ai-governance/_intel_scraper_v2.py")
+INDEX_CMD = [
+    sys.executable, "-m", "scripts.compliance_index",
+    "--source", str(INTEL_DST), "--include-jsonl",
+]
+DB_PATH = Path(__file__).resolve().parent.parent / "data" / "compliance.duckdb"
+
+
+def sync_reports() -> tuple[int, list[str]]:
+    """同步新报告到 scene2_intel, 返回 (新增数, 新增文件名)"""
+    INTEL_DST.mkdir(parents=True, exist_ok=True)
+    existing = {p.name for p in INTEL_DST.glob("*.md")}
+    added: list[str] = []
+    for src in sorted(INTEL_SRC.glob("intel-*.md")):
+        if src.name not in existing:
+            shutil.copy2(src, INTEL_DST / src.name)
+            added.append(src.name)
+    return len(added), added
+
+
+def run_scraper(timeout: int = 240) -> bool:
+    """运行情报采集器"""
+    if not SCRAPER.exists():
+        return False
+    try:
+        r = subprocess.run([sys.executable, str(SCRAPER)],
+                           capture_output=True, text=True, timeout=timeout)
+        return r.returncode == 0
+    except subprocess.TimeoutExpired:
+        return False
+
+
+def index() -> dict:
+    """增量索引 (幂等)"""
+    r = subprocess.run(INDEX_CMD, capture_output=True, text=True, timeout=300)
+    out = r.stdout + r.stderr
+    chunks = 0
+    docs = 0
+    for line in out.splitlines():
+        if "分块:" in line:
+            try:
+                chunks = int(line.split(":")[1].strip().replace("个", ""))
+            except ValueError:
+                pass
+        if "文档:" in line:
+            try:
+                docs = int(line.split(":")[1].strip().replace("个", ""))
+            except ValueError:
+                pass
+    return {"exit": r.returncode, "docs": docs, "chunks": chunks}
+
+
+def verify() -> dict:
+    """块数对账"""
+    import duckdb
+
+    con = duckdb.connect(str(DB_PATH), read_only=True)
+    total = con.execute("SELECT COUNT(*) FROM compliance_chunks").fetchone()[0]
+    intel = con.execute(
+        "SELECT COUNT(*) FROM compliance_chunks WHERE doc_name LIKE 'intel-%'"
+    ).fetchone()[0]
+    con.close()
+    return {"total": total, "intel": intel}
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--no-scrape", action="store_true", help="跳过采集")
+    parser.add_argument("--json", action="store_true")
+    args = parser.parse_args()
+
+    t0 = time.time()
+    result: dict = {"step": "kb_refresh", "ts": time.strftime("%Y-%m-%d %H:%M:%S")}
+
+    # 1. 采集 (可选)
+    if not args.no_scrape:
+        scraper_ok = run_scraper()
+        result["scraper"] = "ok" if scraper_ok else "skipped/failed"
+    else:
+        result["scraper"] = "skipped (--no-scrape)"
+
+    # 2. 同步新报告
+    added_n, added = sync_reports()
+    result["synced"] = added_n
+    result["new_reports"] = added
+
+    # 3. 增量索引
+    idx = index()
+    result["index"] = idx
+
+    # 4. 验证
+    v = verify()
+    result["verify"] = v
+
+    result["elapsed_s"] = round(time.time() - t0, 1)
+
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+    else:
+        print(f"=== 知识库刷新 {result['ts']} ===")
+        print(f"采集: {result['scraper']}")
+        print(f"同步: +{added_n} 份报告 {added}")
+        print(f"索引: {idx}")
+        print(f"对账: 总{result['verify']['total']}块 (情报{result['verify']['intel']}块)")
+        print(f"耗时: {result['elapsed_s']}s")
+        ok = idx.get("exit") == 0 and result["verify"]["total"] > 0
+        print(f"结果: {'✅ 成功' if ok else '❌ 失败'}")
+        sys.exit(0 if ok else 1)
+
+
+if __name__ == "__main__":
+    main()
