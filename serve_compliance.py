@@ -41,6 +41,27 @@ st.sidebar.markdown(
     """
 )
 
+# ── 知识库选择 (全局库 / 客户独立库) ────────────────────────────────
+st.sidebar.markdown("## 📚 知识库")
+try:
+    from customer_onboard import list_customers
+
+    customers = list_customers()
+    options = ["📦 全局库 (法规+情报)"] + [f"🏢 {c} (客户库)" for c in customers]
+    choice = st.sidebar.selectbox("选择知识库", options)
+    if choice.startswith("🏢"):
+        cust = choice.split(" ")[1].split(" (")[0]
+        from compliance_qa import set_customer_db
+
+        set_customer_db(cust)
+        st.sidebar.success(f"已切换: {cust} 客户库")
+    else:
+        from compliance_qa import set_customer_db
+
+        set_customer_db(None)
+except Exception:
+    pass
+
 # ── 可观测性面板 (成本/效率仪表盘) ──────────────────────────────────
 st.sidebar.markdown("---")
 st.sidebar.markdown("## 📈 成本与效率")
