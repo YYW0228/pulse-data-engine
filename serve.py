@@ -216,6 +216,63 @@ with col2:
         city_df = city_df[~city_df["city"].isin(["?", "未知", ""])]
         st.bar_chart(city_df.set_index("city")["job_count"], height=300, color="#26c6da")
 
+# ── Row 5.5: 市场洞察 (直播叙事弹药) ────────────────────────────────
+st.markdown("---")
+st.markdown("## 🎯 市场洞察 — 企业最痛什么 / 最缺什么人才")
+
+# 从 jobs.duckdb 的 analysis 表读洞察 (市场管道产物)
+try:
+    pain_df = safe_query(
+        con,
+        "SELECT pain_category, pain_description, hiring_volume, urgency "
+        "FROM analysis_pain_points ORDER BY hiring_volume DESC",
+    )
+    if not pain_df.empty:
+        st.markdown("### 🔥 企业痛点 (来自真实 JD 证据)")
+        for _, row in pain_df.iterrows():
+            cat = row.get("pain_category", "?")
+            desc = str(row.get("pain_description", ""))[:80]
+            ev = str(row.get("evidence", ""))[:60]
+            st.markdown(f"- **{cat}** (招聘量 {row.get('hiring_volume', '?')}): {desc}")
+            if ev:
+                st.markdown(f"  <small style='color:#888'>证据: {ev}</small>",
+                            unsafe_allow_html=True)
+    else:
+        st.caption("暂无市场洞察 — 等待 job-scraper 管道产出")
+except Exception:
+    st.caption("市场洞察暂不可用")
+
+# 技能需求 (市场管道 analysis 表)
+try:
+    skill_df = safe_query(
+        con,
+        "SELECT skill_name, demand_count, salary_min_k, salary_max_k "
+        "FROM analysis_skill_demands ORDER BY demand_count DESC",
+    )
+    if not skill_df.empty:
+        st.markdown("### 💼 技能需求 Top (薪资区间)")
+        c1, c2 = st.columns([2, 3])
+        with c1:
+            st.bar_chart(skill_df.set_index("skill_name")["demand_count"],
+                         height=280, color="#ffa726")
+        with c2:
+            st.dataframe(
+                skill_df.style.format({
+                    "salary_min_k": "¥{:,.0f}K",
+                    "salary_max_k": "¥{:,.0f}K",
+                }),
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "skill_name": "技能",
+                    "demand_count": "岗位数",
+                    "salary_min_k": "最低薪资",
+                    "salary_max_k": "最高薪资",
+                },
+            )
+except Exception:  # noqa: S110 - 技能表缺失不阻断 Dashboard
+    pass
+
 # ── Row 6: 极速技术展示 ─────────────────────────────────────────────
 st.markdown("---")
 st.markdown("## ⚡ 技术栈一览")
