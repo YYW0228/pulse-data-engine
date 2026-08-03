@@ -29,10 +29,12 @@ def record(
     error: str = "",
     model: str = "deepseek-chat",
     cache_hit: bool | None = None,
+    reactive_compact: bool = False,
 ) -> None:
     """记录一次问答指标 (JSONL 追加)
 
     cache_hit: PrefixCache 命中 (有 history 且 system prompt 版本未变)
+    reactive_compact: 触发过反应式压缩 (prompt_too_long → 压缩重试)
     """
     METRICS_PATH.parent.mkdir(parents=True, exist_ok=True)
     entry = {
@@ -45,6 +47,7 @@ def record(
         "tokens_in": tokens_in,
         "tokens_out": tokens_out,
         "cache_hit": cache_hit,
+        "reactive_compact": reactive_compact,
         "cost_estimate_usd": round(tokens_in / 1e6 * 0.27 + tokens_out / 1e6 * 1.10, 5),
         "success": success,
         "error": error[:100],
@@ -78,6 +81,7 @@ def summarize(limit: int = 1000) -> dict:
     tok_out = [r["tokens_out"] for r in records]
     cit = [r["citations"] for r in records]
     cost = sum(r["cost_estimate_usd"] for r in records)
+    compacted = sum(1 for r in records if r.get("reactive_compact"))
 
     return {
         "total": len(records),
@@ -89,6 +93,7 @@ def summarize(limit: int = 1000) -> dict:
         "avg_citations": round(statistics.mean(cit), 1) if cit else 0,
         "total_cost_usd": round(cost, 4),
         "cache_hit_rate": round(sum(1 for r in records if r.get("cache_hit")) / len(records), 3) if records else 0,
+        "compact_count": compacted,
         "errors": [r["error"] for r in records if not r["success"]][:5],
     }
 

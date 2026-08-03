@@ -58,6 +58,8 @@ try:
         st.sidebar.metric("平均耗时", f"{s['avg_ms']:.0f}ms")
         st.sidebar.metric("平均 token", f"{s['avg_tokens_in']}→{s['avg_tokens_out']}")
         st.sidebar.metric("平均引用", f"{s['avg_citations']}")
+        st.sidebar.metric("缓存命中率", f"{s.get('cache_hit_rate', 0)*100:.0f}%")
+        st.sidebar.metric("压缩触发", f"{s.get('compact_count', 0)}次")
         st.sidebar.metric("总成本", f"${s['total_cost_usd']:.4f}")
     else:
         st.sidebar.caption("暂无数据 — 先发一条问题")

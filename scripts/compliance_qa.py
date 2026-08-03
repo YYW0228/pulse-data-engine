@@ -499,7 +499,8 @@ def _llm_call_with_retry(api_key: str, messages: list[dict], model_name: str,
         citations = answer_text.count("文档:")
         _record_metric(query, (time.time() - t0) * 1000, len(chunks), citations,
                        len(json.dumps(messages, ensure_ascii=False)) // 2, tokens_out,
-                       True, model=model_name, cache_hit=bool(history))
+                       True, model=model_name, cache_hit=bool(history),
+                       reactive_compact=True)
         if tracer:
             tracer.step("reactive_compact", {"tokens_out": tokens_out, "citations": citations})
             tracer.save({"success": True, "model": model_name, "citations": citations,
@@ -512,13 +513,14 @@ def _llm_call_with_retry(api_key: str, messages: list[dict], model_name: str,
 
 def _record_metric(query: str, ms: float, chunks: int, citations: int,
                    tokens_in: int, tokens_out: int, success: bool, error: str = "",
-                   model: str = "deepseek-chat", cache_hit: bool | None = None) -> None:
+                   model: str = "deepseek-chat", cache_hit: bool | None = None,
+                   reactive_compact: bool = False) -> None:
     """记录问答指标 (失败不阻断主流程)"""
     try:
         from compliance_metrics import record
 
         record(query, ms, chunks, citations, tokens_in, tokens_out, success, error,
-               model, cache_hit)
+               model, cache_hit, reactive_compact)
     except Exception:
         pass
 
