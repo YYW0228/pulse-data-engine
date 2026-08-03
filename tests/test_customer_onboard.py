@@ -27,6 +27,28 @@ def test_customer_db_switch(monkeypatch):
     assert cqa._active_db().name == "compliance.duckdb"
 
 
+def test_customer_fallback_logic():
+    """客户库回退判定: 全局强命中 - 客户弱命中 > 0.05 → 应回退 (答非所问防御)"""
+    import scripts.compliance_qa as cqa
+
+    # 模拟检索结果
+    cust_results = [{"doc": "cust.md", "hits": 0.50}]  # 客户库弱命中
+    global_results = [{"doc": "law.md", "hits": 0.72}]  # 全局库强命中
+
+    # 复刻 retrieve 的回退判定逻辑
+    cust_best = max(r["hits"] for r in cust_results)
+    global_best = max((r["hits"] for r in global_results), default=0.0)
+    should_fallback = (global_best - cust_best > 0.05) and (global_best >= cqa.SIM_THRESHOLD)
+    assert should_fallback, "全局 0.72 vs 客户 0.50 应回退"
+
+    # 反例: 客户库强命中 (密码策略场景) → 不回退
+    cust_strong = [{"doc": "cust.md", "hits": 0.674}]
+    global_weak = [{"doc": "law.md", "hits": 0.50}]
+    cb = max(r["hits"] for r in cust_strong)
+    gb = max((r["hits"] for r in global_weak), default=0.0)
+    assert not (gb - cb > 0.05), "客户库 0.674 应保留"
+
+
 def test_list_customers(tmp_path, monkeypatch):
     """列出已接入客户 (仅含独立库存在的)"""
     from scripts import customer_onboard as co

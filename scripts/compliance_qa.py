@@ -77,32 +77,51 @@ def get_model():
 
 
 def retrieve(query: str, top_k: int = 5) -> list[dict]:
-    """向量语义检索 — DuckDB VSS 余弦相似度 (返回 top_k*3 候选)"""
+    """向量语义检索 — DuckDB VSS 余弦相似度 (返回 top_k*3 候选)
+
+    客户库回退: 客户库无有效命中 (<SIM_THRESHOLD) → 自动回退全局库
+    (客户库 = 客户文档 + 全局法规底座)
+    """
     model = get_model()
     qvec = model.encode(query, normalize_embeddings=True)
 
-    con = duckdb.connect(str(_active_db()))
-    # 兜底: 显式设置扩展目录 (systemd 环境 HOME 可能异常; 本机/CI home 均可写)
-    ext_dir = Path.home() / ".duckdb" / "extensions"
-    if ext_dir.exists():
-        con.execute(f"SET extension_directory='{ext_dir}'")
-    con.execute("INSTALL vss")  # 幂等: CI 环境自动下载到 home
-    con.execute("LOAD vss")
-    con.execute("SET hnsw_enable_experimental_persistence = true")
-    rows = con.execute(f"""
-        SELECT doc_name, title, content, char_len,
-               list_cosine_similarity(embedding, ?) as sim,
-               importance
-        FROM compliance_chunks
-        ORDER BY sim DESC
-        LIMIT {top_k * 3}
-    """, [qvec.tolist()]).fetchall()
-    con.close()
+    def _query(db_path: Path) -> list[dict]:
+        con = duckdb.connect(str(db_path))
+        ext_dir = Path.home() / ".duckdb" / "extensions"
+        if ext_dir.exists():
+            con.execute(f"SET extension_directory='{ext_dir}'")
+        con.execute("INSTALL vss")
+        con.execute("LOAD vss")
+        con.execute("SET hnsw_enable_experimental_persistence = true")
+        rows = con.execute(f"""
+            SELECT doc_name, title, content, char_len,
+                   list_cosine_similarity(embedding, ?) as sim,
+                   importance
+            FROM compliance_chunks
+            ORDER BY sim DESC
+            LIMIT {top_k * 3}
+        """, [qvec.tolist()]).fetchall()
+        con.close()
+        return [
+            {"doc": d, "title": t, "content": c[:3000], "hits": round(float(s), 3),
+             "char_len": cl, "importance": float(imp or 0.3)}
+            for d, t, c, cl, s, imp in rows
+        ]
 
-    return [
-        {"doc": d, "title": t, "content": c[:3000], "hits": round(float(s), 3), "char_len": cl, "importance": float(imp or 0.3)}
-        for d, t, c, cl, s, imp in rows
-    ]
+    results = _query(_active_db())
+
+    # 客户库回退: 客户库命中明显弱于全局库 (答非所问) → 全局库优先
+    # 判定: 全局库最高 sim - 客户库最高 sim > 0.05 → 客户库内容不匹配
+    if _CUSTOMER_DB and results:
+        global_results = _query(DB_PATH)
+        cust_best = max(r["hits"] for r in results)
+        global_best = max((r["hits"] for r in global_results), default=0.0)
+        if global_best - cust_best > 0.05 and global_best >= SIM_THRESHOLD:
+            valid_global = [r for r in global_results if r["hits"] >= SIM_THRESHOLD]
+            if valid_global:
+                return valid_global
+
+    return results
 
 
 def mmr_rerank(candidates: list[dict], query_vec, top_k: int) -> list[dict]:
