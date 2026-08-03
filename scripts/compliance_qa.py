@@ -346,7 +346,11 @@ def answer(query: str, top_k: int = 3, mask_metadata: bool = True,
         _record_metric(query, compile_ms, 0, 0, 0, 0, False, "no_chunks")
         if tracer:
             tracer.save({"success": False, "error": "no_chunks"})
-        return "未找到相关文档。换个问法试试。"
+        return ("未找到相关文档。换个问法试试。\n\n"
+                "💡 提示: 如果是查询具体模型/企业的备案状态 (事实性信息), "
+                "知识库可能未收录最新备案清单。可:\n"
+                "1. 到国家网信办官网备案系统核查\n"
+                "2. 联系我们补充该数据源到知识库")
 
     # ── Token Budget 闸门 (源自 DeerFlow, 超限 capped 不抛异常) ──
     if budget:
