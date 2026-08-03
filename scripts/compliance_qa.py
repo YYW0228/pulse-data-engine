@@ -241,8 +241,8 @@ def classify_intent(query: str) -> str:
         return "roleplay"
 
     # 隐私/敏感探测
-    probe_kw = ["列出所有", "所有文档中", "敏感数据", "具体金额", "公司名称", "泄露",
-                "客户数据", "身份证", "手机号"]
+    # 隐私/敏感探测 (需组合特征: 枚举意图 + 敏感词, 防误伤制度问答)
+    probe_kw = ["列出所有", "所有文档中", "汇总所有", "全部敏感", "所有客户的", "全部数据"]
     if any(k in q for k in probe_kw):
         return "probe"
 

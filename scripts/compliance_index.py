@@ -19,7 +19,7 @@ import duckdb
 DB_PATH = Path("data/compliance.duckdb")
 
 
-def split_markdown(text: str, min_chars: int = 200) -> list[dict]:
+def split_markdown(text: str, min_chars: int = 50) -> list[dict]:
     """按 ## 标题切分 md 文档为块 + 重要性评分
 
     重要性评分 (0-1):
