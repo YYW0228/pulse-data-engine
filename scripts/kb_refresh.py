@@ -34,8 +34,12 @@ MARKET_SRC = Path("/opt/startalent/market_insight")  # job-scraper CI 写入 (ru
 MARKET_DST = Path(__file__).resolve().parent.parent / "data" / "market_knowledge"
 SCRAPER = Path("/root/projects/china-ai-governance/_intel_scraper_v2.py")
 INDEX_CMD = [
-    sys.executable, "-m", "scripts.compliance_index",
-    "--source", str(INTEL_DST), "--include-jsonl",
+    sys.executable,
+    "-m",
+    "scripts.compliance_index",
+    "--source",
+    str(INTEL_DST),
+    "--include-jsonl",
 ]
 DB_PATH = Path(__file__).resolve().parent.parent / "data" / "compliance.duckdb"
 
@@ -66,13 +70,52 @@ def sync_market_insight() -> tuple[int, list[str]]:
     return len(added), added
 
 
+def _scraper_interpreter() -> str:
+    """探测能运行 scraper 的 Python 解释器.
+
+    kb_refresh 运行在项目 venv (uv run) 下, sys.executable 是 venv python;
+    但 scraper (china-ai-governance/_intel_scraper_v2.py, shebang
+    `#!/usr/bin/env python3`) 依赖 bs4/requests, 只装在系统 python。
+    且 uv run 会把 venv 提前到 PATH, shutil.which("python3") 也会命中 venv。
+    因此按候选顺序探测, 返回第一个能 import bs4+requests 的解释器。
+    """
+    import shutil
+
+    candidates = [
+        "/usr/bin/python3",
+        "/usr/local/lib/hermes-agent/venv/bin/python3",
+        shutil.which("python3") or "",
+    ]
+    failures: list[str] = []
+    for cand in candidates:
+        if not cand or not Path(cand).exists():
+            continue
+        try:
+            r = subprocess.run(
+                [cand, "-c", "import bs4, requests"],
+                capture_output=True,
+                timeout=30,
+            )
+            if r.returncode == 0:
+                return cand
+            err_text = r.stderr or ""
+            if isinstance(err_text, bytes):
+                err_text = err_text.decode("utf-8", "replace")
+            failures.append(f"{cand}: {err_text.strip()[-200:]}")
+        except Exception as e:
+            failures.append(f"{cand}: {e!r}")
+    print(f"[kb_refresh] 未找到可用 scraper 解释器: {failures}", file=sys.stderr)
+    # 兜底: 原行为 (venv python), 失败会在 run_scraper 中体现
+    return sys.executable
+
+
 def run_scraper(timeout: int = 240) -> bool:
-    """运行情报采集器"""
+    """运行情报采集器 (使用带 bs4/requests 的系统 python)"""
     if not SCRAPER.exists():
         return False
+    py = _scraper_interpreter()
     try:
-        r = subprocess.run([sys.executable, str(SCRAPER)],
-                           capture_output=True, text=True, timeout=timeout)
+        r = subprocess.run([py, str(SCRAPER)], capture_output=True, text=True, timeout=timeout)
         return r.returncode == 0
     except subprocess.TimeoutExpired:
         return False
@@ -139,9 +182,17 @@ def main():
     idx = index()
     # 市场知识独立索引 (幂等)
     m_idx = subprocess.run(
-        [sys.executable, "-m", "scripts.compliance_index",
-         "--source", str(MARKET_DST), "--include-jsonl"],
-        capture_output=True, text=True, cwd=Path(__file__).resolve().parent.parent,
+        [
+            sys.executable,
+            "-m",
+            "scripts.compliance_index",
+            "--source",
+            str(MARKET_DST),
+            "--include-jsonl",
+        ],
+        capture_output=True,
+        text=True,
+        cwd=Path(__file__).resolve().parent.parent,
         timeout=300,
     )
     result["index"] = idx
