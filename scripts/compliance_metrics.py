@@ -23,8 +23,8 @@ def record(
     ms: float,
     chunks: int,
     citations: int,
-    tokens_in: int,
-    tokens_out: int,
+    tokens_in: int | None,
+    tokens_out: int | None,
     success: bool,
     error: str = "",
     model: str = "deepseek-chat",
@@ -33,10 +33,18 @@ def record(
 ) -> None:
     """记录一次问答指标 (JSONL 追加)
 
+    T7 (buzz turn_metric_semantics): tokens_in/out = None 表示"未报告"
+    (provider 没给), 不是 0。成本估算只在两者都有时计算, 避免误算。
     cache_hit: PrefixCache 命中 (有 history 且 system prompt 版本未变)
     reactive_compact: 触发过反应式压缩 (prompt_too_long → 压缩重试)
     """
     METRICS_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+    # T7: 成本只在 token 都有时估算 (None = 未报告, 不误算)
+    cost = None
+    if tokens_in is not None and tokens_out is not None:
+        cost = round(tokens_in / 1e6 * 0.27 + tokens_out / 1e6 * 1.10, 5)
+
     entry = {
         "ts": time.strftime("%Y-%m-%d %H:%M:%S"),
         "query": query[:100],
@@ -48,13 +56,12 @@ def record(
         "tokens_out": tokens_out,
         "cache_hit": cache_hit,
         "reactive_compact": reactive_compact,
-        "cost_estimate_usd": round(tokens_in / 1e6 * 0.27 + tokens_out / 1e6 * 1.10, 5),
+        "cost_estimate_usd": cost,
         "success": success,
         "error": error[:100],
     }
     with METRICS_PATH.open("a", encoding="utf-8") as f:
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-
 
 def summarize(limit: int = 1000) -> dict:
     """汇总最近 N 条记录"""
@@ -77,10 +84,12 @@ def summarize(limit: int = 1000) -> dict:
 
     success = [r for r in records if r["success"]]
     ms_list = [r["ms"] for r in records]
-    tok_in = [r["tokens_in"] for r in records]
-    tok_out = [r["tokens_out"] for r in records]
+    # T7: token/成本只统计"已报告"的记录 (None = 未报告, 不误算)
+    tok_in = [r["tokens_in"] for r in records if r.get("tokens_in") is not None]
+    tok_out = [r["tokens_out"] for r in records if r.get("tokens_out") is not None]
     cit = [r["citations"] for r in records]
-    cost = sum(r["cost_estimate_usd"] for r in records)
+    cost_vals = [r["cost_estimate_usd"] for r in records if r.get("cost_estimate_usd") is not None]
+    cost = sum(cost_vals)
     compacted = sum(1 for r in records if r.get("reactive_compact"))
 
     return {
@@ -90,8 +99,10 @@ def summarize(limit: int = 1000) -> dict:
         "p95_ms": round(sorted(ms_list)[int(len(ms_list) * 0.95) - 1], 1) if len(ms_list) > 1 else ms_list[0],
         "avg_tokens_in": round(statistics.mean(tok_in)) if tok_in else 0,
         "avg_tokens_out": round(statistics.mean(tok_out)) if tok_out else 0,
+        "token_report_rate": round(len(tok_in) / len(records), 3) if records else 0,
         "avg_citations": round(statistics.mean(cit), 1) if cit else 0,
         "total_cost_usd": round(cost, 4),
+        "cost_report_rate": round(len(cost_vals) / len(records), 3) if records else 0,
         "cache_hit_rate": round(sum(1 for r in records if r.get("cache_hit")) / len(records), 3) if records else 0,
         "compact_count": compacted,
         "errors": [r["error"] for r in records if not r["success"]][:5],

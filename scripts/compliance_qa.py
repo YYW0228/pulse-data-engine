@@ -47,6 +47,7 @@ def _active_db() -> Path:
 SIM_THRESHOLD = 0.55      # 低于此相似度的块不进 context
 MAX_CONTEXT_CHARS = 6000  # context 总长度预算
 LARGE_CHUNK_CHARS = 4000  # 单块超过此长度 → 转存文件 (reactive_compaction)
+HANDOFF_THRESHOLD = 8     # history 超过 8 轮 → 生成交接摘要 (T6, buzz 模式)
 DUMP_DIR = Path(__file__).resolve().parent.parent / "data" / "context_dumps"
 
 
@@ -303,6 +304,52 @@ except Exception:
     _loop_detector = None
 
 
+def _generate_handoff(history: list[dict[str, str]], api_key: str, model_name: str,
+                      tracer) -> str | None:
+    """T6: 生成上下文交接摘要 (buzz handoff.rs 模式)
+
+    长对话 (>HANDOFF_THRESHOLD 轮) → LLM 提炼: 原任务/已完成/下一步
+    摘要替代旧消息, 保留最近一轮 → token 大降 + 状态不丢
+    """
+    if not api_key:
+        return None
+    import httpx  # 局部导入 (与文件其他函数一致, 避免启动开销)
+
+    # 只取最近的对话做摘要 (全量太长)
+    recent = history[-10:]
+    compact = "\n".join(
+        f"{m['role']}: {m['content'][:200]}" for m in recent
+    )
+    try:
+        resp = httpx.post(
+            "https://api.deepseek.com/v1/chat/completions",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json={
+                "model": model_name,
+                "messages": [
+                    {"role": "system", "content": (
+                        "You are generating a context handoff summary for the next "
+                        "turn of an assistant. Be concise but thorough. Cover: "
+                        "1) what the original task was, 2) what was already done, "
+                        "3) what is next / open questions. Output in Chinese, "
+                        "under 200 words.")},
+                    {"role": "user", "content": compact},
+                ],
+                "temperature": 0.2,
+                "max_tokens": 300,
+            },
+            timeout=30,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        text = data["choices"][0]["message"]["content"].strip()
+        if tracer:
+            tracer.step("handoff", {"summary_len": len(text)})
+        return f"[会话交接摘要] {text}"
+    except Exception:
+        return None
+
+
 def answer(query: str, top_k: int = 3, mask_metadata: bool = True,
            history: list[dict[str, str]] | None = None,
            budget: dict | None = None) -> str:
@@ -328,7 +375,7 @@ def answer(query: str, top_k: int = 3, mask_metadata: bool = True,
         tracer.step("intent", {"intent": intent})
     if intent != "factual_query":
         rejection = INTENT_REJECT.get(intent, INTENT_REJECT["instruction_attack"])
-        _record_metric(query, (time.time() - t0) * 1000, 0, 0, 0, 0, True,
+        _record_metric(query, (time.time() - t0) * 1000, 0, 0, None, None, True,
                        error=f"intent:{intent}")
         if tracer:
             tracer.step("reject", {"intent": intent})
@@ -343,7 +390,7 @@ def answer(query: str, top_k: int = 3, mask_metadata: bool = True,
         tracer.step("retrieve", {"chunks": len(chunks), "top_sim": round(chunks[0]["hits"], 3) if chunks else 0,
                                  "docs": sorted({c["doc"] for c in chunks})[:3]})
     if not chunks:
-        _record_metric(query, compile_ms, 0, 0, 0, 0, False, "no_chunks")
+        _record_metric(query, compile_ms, 0, 0, None, None, False, "no_chunks")
         if tracer:
             tracer.save({"success": False, "error": "no_chunks"})
         return ("未找到相关文档。换个问法试试。\n\n"
@@ -424,7 +471,16 @@ def answer(query: str, top_k: int = 3, mask_metadata: bool = True,
 """
     messages = [{"role": "system", "content": system_prompt}]
     if history:
-        messages.extend(history)  # append-only, 不重写不排序
+        # T6 Handoff: history 过长 (>HANDOFF_THRESHOLD 轮) → 生成交接摘要 (buzz 模式)
+        if len(history) > HANDOFF_THRESHOLD:
+            summary = _generate_handoff(history, api_key, model_name, tracer)
+            if summary:
+                messages.append({"role": "system", "content": summary})
+                messages.extend(history[-2:])  # 保留最近一轮完整对话
+            else:
+                messages.extend(history)  # 摘要失败 → 原样 (降级)
+        else:
+            messages.extend(history)  # append-only, 不重写不排序
     messages.append({
         "role": "user",
         "content": f"参考资料:\n{context}\n\n问题: {query}",
@@ -549,7 +605,8 @@ def _llm_call_with_retry(api_key: str, messages: list[dict], model_name: str,
 
 
 def _record_metric(query: str, ms: float, chunks: int, citations: int,
-                   tokens_in: int, tokens_out: int, success: bool, error: str = "",
+                   tokens_in: int | None, tokens_out: int | None, success: bool,
+                   error: str = "",
                    model: str = "deepseek-chat", cache_hit: bool | None = None,
                    reactive_compact: bool = False) -> None:
     """记录问答指标 (失败不阻断主流程)"""
