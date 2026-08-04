@@ -76,6 +76,7 @@ class BoomPipeline:
                 tier VARCHAR DEFAULT 'L1',
                 summary VARCHAR DEFAULT '',
                 factors VARCHAR DEFAULT '[]',
+                factor_evidence VARCHAR DEFAULT '[]',
                 confidence REAL DEFAULT 0.0,
                 caveats VARCHAR DEFAULT '[]',
                 life VARCHAR DEFAULT '长青',
@@ -102,6 +103,11 @@ class BoomPipeline:
                 value VARCHAR
             )
         """)
+        # 迁移: 旧库加 factor_evidence 列 (CREATE IF NOT EXISTS 不会加列)
+        try:
+            self.con.execute("ALTER TABLE analyses ADD COLUMN IF NOT EXISTS factor_evidence VARCHAR DEFAULT '[]'")
+        except Exception:
+            pass
         # DuckDB 默认 WAL (不需要显式设置)
         logger.info("[BoomPipeline] Schema 就绪")
 
@@ -149,13 +155,14 @@ class BoomPipeline:
 
     def save_analysis(self, analysis: dict) -> None:
         self.con.execute("""
-            INSERT INTO analyses (work_id, tier, summary, factors, confidence,
+            INSERT INTO analyses (work_id, tier, summary, factors, factor_evidence, confidence,
                                   caveats, life, life_reason, raw_result, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(work_id) DO UPDATE SET
                 tier = EXCLUDED.tier,
                 summary = EXCLUDED.summary,
                 factors = EXCLUDED.factors,
+                factor_evidence = EXCLUDED.factor_evidence,
                 confidence = EXCLUDED.confidence,
                 caveats = EXCLUDED.caveats,
                 life = EXCLUDED.life,
@@ -165,6 +172,7 @@ class BoomPipeline:
             analysis["work_id"], analysis.get("tier", "L1"),
             analysis.get("summary", ""),
             json.dumps(analysis.get("factors", []), ensure_ascii=False),
+            json.dumps(analysis.get("factor_evidence", []), ensure_ascii=False),
             analysis.get("confidence", 0.0),
             json.dumps(analysis.get("caveats", []), ensure_ascii=False),
             analysis.get("life", "长青"), analysis.get("life_reason", ""),
