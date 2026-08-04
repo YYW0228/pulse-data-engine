@@ -30,9 +30,16 @@ def task_fetch_validate() -> None:
     """多源采集 → Data Contracts 校验 → ODS"""
     from pulse.extractors import fetch_all as fetch_remotive
     from pulse.extractors.jobicy import fetch_all as fetch_jobicy
+    from pulse.extractors.dap_enrich import enrich_records
 
     raw = fetch_remotive(limit_per_category=5) + fetch_jobicy(limit_per_geo=15)
     logger.info(f"采集: {len(raw)} 条 (Remotive + Jobicy)")
+
+    # dap 增强: AI 岗位语义识别 + 合规相关性 + 字段级溯源 (可开关)
+    raw = enrich_records(raw)
+    ai_roles = sum(1 for r in raw if r.get("_ai_is_ai_role"))
+    if ai_roles:
+        logger.info(f"dap 增强: 识别 {ai_roles} 条 AI 相关岗位")
 
     p = Pipeline()
     p.init_schema()
@@ -92,8 +99,10 @@ def task_export_iceberg() -> None:
     p = Pipeline()
     p.init_schema()
     r = p.export_to_iceberg()
-    logger.info(f"Iceberg: {r['data_files']} 文件, {r['total_bytes']/1024:.1f} KB, "
-                f"{r['retained']} 保留, {r['deleted']} 清理")
+    logger.info(
+        f"Iceberg: {r['data_files']} 文件, {r['total_bytes'] / 1024:.1f} KB, "
+        f"{r['retained']} 保留, {r['deleted']} 清理"
+    )
     p.close()
 
 
