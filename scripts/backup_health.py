@@ -26,7 +26,8 @@ TIER3 = ["kv-cache-governance", "my-intelligence-base", "obsidian_2025",
          "SOVEREIGN-SINGULARITY", "startalent-project-template"]
 
 SERVICES = ["pulse-dashboard", "pulse-compliance", "pulse-wasm", "pulse-metrics", "pulse-telegram"]
-MAX_UNPUSHED_AGE_HOURS = 48
+MAX_UNPUSHED_AGE_HOURS = 48      # Tier 1/2 活跃仓库
+TIER2_MAX_AGE_HOURS = 168        # Tier 2 (startalent) 每周 push 即可
 
 
 def git_uncommitted(repo: str) -> int:
@@ -66,9 +67,11 @@ def check() -> dict:
             uncommitted = git_uncommitted(repo)
             last_push = git_last_push(repo)
             age_h = (time.time() - last_push) / 3600 if last_push else 999
-            # Tier 1/2: 48h 内须 push; Tier 3 (存档): 只需无未提交 (远端 CI 保活)
+            # 分级阈值: Tier1/2 活跃 48h, Tier2 特定仓库 168h, Tier3 存档仅需无未提交
             is_archive = repo in TIER3
-            push_fresh = age_h < MAX_UNPUSHED_AGE_HOURS or is_archive
+            is_tier2 = repo in TIER2
+            age_limit = TIER2_MAX_AGE_HOURS if is_tier2 else MAX_UNPUSHED_AGE_HOURS
+            push_fresh = age_h < age_limit or is_archive
             healthy = uncommitted == 0 and push_fresh
             results["repos"][repo] = {
                 "uncommitted": uncommitted,
