@@ -53,6 +53,14 @@ def service_active(name: str) -> bool:
     return r.stdout.strip() == "active"
 
 
+def disk_usage() -> dict:
+    """磁盘空间检查 (P1-3 监控)"""
+    r = subprocess.run(["df", "-h", "/"], capture_output=True, text=True, timeout=10)
+    line = r.stdout.splitlines()[-1].split()
+    pct = int(line[4].rstrip("%"))
+    return {"used_pct": pct, "avail": line[3], "warn": pct >= 80}
+
+
 def check() -> dict:
     results: dict = {
         "repos": {},
@@ -98,6 +106,13 @@ def check() -> dict:
             results["ok"] = False
             results["alerts"].append(f"{svc}: 不在运行")
 
+    # 3. 磁盘空间 (P1-3)
+    disk = disk_usage()
+    results["disk"] = disk
+    if disk["warn"]:
+        results["ok"] = False
+        results["alerts"].append(f"磁盘 {disk['used_pct']}% (剩 {disk['avail']}) — 需清理")
+
     return results
 
 
@@ -117,6 +132,8 @@ def main():
         print("=== 服务健康 ===")
         for svc, ok in results["services"].items():
             print(f"  {'✅' if ok else '🔴'} {svc}")
+        d = results.get("disk", {})
+        print(f"=== 磁盘 ===\n  {'✅' if not d.get('warn') else '🔴'} 已用 {d.get('used_pct','?')}% (剩 {d.get('avail','?')})")
         if results["alerts"]:
             print("\n⚠️ 告警:")
             for a in results["alerts"]:
