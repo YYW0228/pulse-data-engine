@@ -93,7 +93,7 @@ def enrich_records(records: list[dict], max_records: int = 20) -> list[dict]:
                 for k, v in result.data.items():
                     rec[f"_ai_{k}"] = v
                 enriched += 1
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             logger.warning(f"[dap_enrich] 单条增强失败: {e}")
     if enriched:
         logger.info(
