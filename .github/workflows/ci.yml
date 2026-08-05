@@ -6,6 +6,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # gitleaks 部分扫描需要 before^ 祖先提交, 浅克隆会导致
+          # "fatal: ambiguous argument ... unknown revision" 失败
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.10"
