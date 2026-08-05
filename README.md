@@ -1,5 +1,7 @@
 # 🚀 Pulse Data Engine
 
+> **运行状态 (2026-08-05)**: 已迁移至 Mac Mini 常开 (8501/8502/9464/8000/telegram, 见 hermes-brain/migration/MIGRATION-MAC-MINI.md)。数据三保险: Mac backups 553MB + Cloudflare R2 206MB + GitHub。VPS 已弃用。
+
 **零成本、多源、生产级数据引擎 — 从采集到可视化，一条管道，月运营费 $0**
 
 [![CI](https://github.com/YYW0228/pulse-data-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/YYW0228/pulse-data-engine/actions/workflows/ci.yml)
