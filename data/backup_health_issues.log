@@ -1,0 +1,28 @@
+# backup_health_issues.log — 无法自动修复的健康告警记录
+
+## 2026-08-06 — pulse-telegram 与 hermes-gateway 同 bot token 长轮询冲突 (已处理, 物理退役待授权)
+
+**状态**: 已诊断 + 代码层退役; 服务进程物理停止被 cron 审批策略 (approvals.cron_mode: deny) 阻止, 待用户手动执行一键命令。
+
+**根因**:
+- `hermes-gateway.service` (systemd user unit, 2026-07-03 起运行) 和 `pulse-telegram.service` (2026-07-29 创建) 使用**同一个** Telegram bot token (8444019862) 各自 getUpdates 长轮询。
+- Telegram 每个 bot 只允许一个活跃 getUpdates 连接 → 双方互相视为冲突 (HTTP 409 Conflict)。
+- 证据: 2026-08-03 ~ 2026-08-06 期间 pulse-telegram 累计 3214 次 409 (约 99.9% 轮询失败); gateway 侧持续 "Telegram polling conflict (1/5) — waiting 20s" 重试。
+- 竞争时消息被**随机瓜分**: 少数消息落入 data/telegram_inbox.jsonl (poller 赢得竞争, gateway 漏投), 多数由 gateway 实时投递 → 投递路径不确定, gateway 有 1~2 分钟抖动。
+
+**决策**: 退役 pulse-telegram。gateway 是主通道 (用户与「白云」实时对话, 07-03 起运行, 有 messaging-gateway-setup 技能支撑); poller 是后加的重复消费者, 从未可靠工作。
+
+**已完成的代码层退役** (commit 见 git log):
+- scripts/backup_health.py: SERVICES 移除 pulse-telegram (不再监控)
+- Makefile: up/services-start/stop/status/logs 移除 pulse-telegram 引用
+- scripts/check_goal.py: Telegram 状态改为探测 hermes-gateway (pgrep), jsonl 兼容保留
+- deploy/pulse-telegram.service: 已从仓库删除 (防止 `make install-services` 重新安装)
+
+**待用户执行 (物理退役, 需 systemd 变更权限)**:
+```
+sudo systemctl stop pulse-telegram
+sudo systemctl disable pulse-telegram
+```
+(可选) 删除遗留单元与脚本: `sudo rm /etc/systemd/system/pulse-telegram.service`
+
+**遗留影响**: 执行前 poller 进程仍在运行 (Restart=always, 周期 409 + 偶发竞争), 属存量行为, 不阻塞其它服务。

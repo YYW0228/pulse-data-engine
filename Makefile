@@ -65,12 +65,12 @@ up:
 	$(UV) python -m pulse.wasm_server &
 	$(UV) streamlit run serve.py &
 	$(UV) dagster-daemon run -w workspace.yaml &
-	$(UV) python -m scripts.telegram_poller &
+	# 注: telegram_poller 已退役 (与 hermes-gateway 同 token 长轮询冲突, 见 data/backup_health_issues.log)
 	@echo "  📊 Metrics:   http://localhost:9464/metrics"
 	@echo "  🦆 WASM SQL:  http://localhost:8000/wasm"
 	@echo "  🚀 Dashboard: http://localhost:8501"
 	@echo "  🎬 Dagster:   http://localhost:3000 (dagster dev)"
-	@echo "  📨 Telegram:  data/telegram_inbox.jsonl"
+	@echo "  📨 Telegram:  hermes-gateway (systemd user unit, 实时投递)"
 
 # ── 端口管理 ─────────────────────────────────────────────────────────
 ports:
@@ -93,16 +93,16 @@ install-services:
 	@echo "✅ 已安装, 用 make services-start 启动"
 
 services-start:
-	@systemctl start pulse-dashboard pulse-compliance pulse-wasm pulse-metrics pulse-telegram
+	@systemctl start pulse-dashboard pulse-compliance pulse-wasm pulse-metrics
 
 services-stop:
-	@systemctl stop pulse-dashboard pulse-compliance pulse-wasm pulse-metrics pulse-telegram
+	@systemctl stop pulse-dashboard pulse-compliance pulse-wasm pulse-metrics
 
 services-status:
-	@systemctl status pulse-dashboard pulse-compliance pulse-wasm pulse-metrics pulse-telegram --no-pager | grep -E "●|Active"
+	@systemctl status pulse-dashboard pulse-compliance pulse-wasm pulse-metrics --no-pager | grep -E "●|Active"
 
 services-logs:
-	@journalctl -u pulse-dashboard -u pulse-compliance -u pulse-wasm -u pulse-metrics -u pulse-telegram --no-pager -n 20
+	@journalctl -u pulse-dashboard -u pulse-compliance -u pulse-wasm -u pulse-metrics --no-pager -n 20
 
 # ── 停服务 ────────────────────────────────────────────────────────────
 down:

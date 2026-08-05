@@ -28,14 +28,16 @@ def parse_goal(path: Path) -> dict:
     for line in text.splitlines():
         m = re.match(r"- \[([ x])\] Step (\d+): (.+) → type:(\w+) \| verify:(\w+)", line)
         if m:
-            steps.append({
-                "id": int(m.group(2)),
-                "title": m.group(3).strip(),
-                "done": m.group(1) == "x",
-                "type": m.group(4),
-                "verify": m.group(5),
-                "state": "completed" if m.group(1) == "x" else "pending",
-            })
+            steps.append(
+                {
+                    "id": int(m.group(2)),
+                    "title": m.group(3).strip(),
+                    "done": m.group(1) == "x",
+                    "type": m.group(4),
+                    "verify": m.group(5),
+                    "state": "completed" if m.group(1) == "x" else "pending",
+                }
+            )
 
     state_section = False
     states = {}
@@ -57,7 +59,7 @@ def parse_goal(path: Path) -> dict:
 
 
 def check_telegram_inbox() -> list:
-    """检查 Telegram 是否有新消息"""
+    """检查 Telegram 是否有新消息 (历史 jsonl 兼容, 2026-08-06 起由 hermes-gateway 实时投递)"""
     if not INBOX_PATH.exists():
         return []
     # 只返回未读的 (上次检查后的新行)
@@ -78,6 +80,22 @@ def check_telegram_inbox() -> list:
     # 更新 offset
     offset_path.write_text(str(len(lines)))
     return new_msgs
+
+
+def check_telegram_gateway() -> str:
+    """Telegram 消息由 hermes-gateway (systemd user unit) 独占长轮询投递"""
+    import subprocess
+
+    try:
+        r = subprocess.run(
+            ["pgrep", "-f", "hermes_cli.main gateway run"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        return "✅ gateway 在线" if r.returncode == 0 else "❌ gateway 离线"
+    except Exception:
+        return "❌ gateway 不可探测"
 
 
 def main():
@@ -104,10 +122,12 @@ def main():
     if msgs:
         print(f"\n📨 Telegram 新消息 ({len(msgs)} 条):")
         for m in msgs:
-            print(f"  [{m.get('from','?')}] {m.get('text','')[:100]}")
+            print(f"  [{m.get('from', '?')}] {m.get('text', '')[:100]}")
+    print(f"\n📨 Telegram: {check_telegram_gateway()} (消息实时投递到会话)")
 
     # 检查 Dashboard
     import httpx
+
     try:
         r = httpx.get("http://localhost:8501", timeout=3)
         dashboard = "✅ 在线" if r.status_code == 200 else "❌ 离线"

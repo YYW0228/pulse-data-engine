@@ -2487,8 +2487,12 @@ dependencies = [
     { name = "pydantic" },
     { name = "requests", extra = ["socks"] },
     { name = "scrapling" },
-    { name = "sentence-transformers" },
     { name = "websocket-client" },
+]
+
+[package.optional-dependencies]
+ml = [
+    { name = "sentence-transformers" },
 ]
 
 [package.dev-dependencies]
@@ -2516,9 +2520,10 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.10.0" },
     { name = "requests", extras = ["socks"], specifier = ">=2.34.2" },
     { name = "scrapling", extras = ["full"], specifier = ">=0.4.12" },
-    { name = "sentence-transformers", specifier = ">=3.0.0" },
+    { name = "sentence-transformers", marker = "extra == 'ml'", specifier = ">=3.0.0" },
     { name = "websocket-client", specifier = ">=1.9.0" },
 ]
+provides-extras = ["ml"]
 
 [package.metadata.requires-dev]
 dev = [

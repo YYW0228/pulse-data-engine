@@ -22,18 +22,27 @@ from pathlib import Path
 PROJECTS_ROOT = Path("/root/projects")
 TIER1 = ["pulse-data-engine", "hermes-brain", "china-ai-governance"]
 TIER2 = ["job-scraper", "startalent-enterprise"]
-TIER3 = ["kv-cache-governance", "my-intelligence-base", "obsidian_2025",
-         "SOVEREIGN-SINGULARITY", "startalent-project-template"]
+TIER3 = [
+    "kv-cache-governance",
+    "my-intelligence-base",
+    "obsidian_2025",
+    "SOVEREIGN-SINGULARITY",
+    "startalent-project-template",
+]
 
-SERVICES = ["pulse-dashboard", "pulse-compliance", "pulse-wasm", "pulse-metrics", "pulse-telegram"]
-MAX_UNPUSHED_AGE_HOURS = 48      # Tier 1/2 活跃仓库
-TIER2_MAX_AGE_HOURS = 168        # Tier 2 (startalent) 每周 push 即可
+SERVICES = ["pulse-dashboard", "pulse-compliance", "pulse-wasm", "pulse-metrics"]
+MAX_UNPUSHED_AGE_HOURS = 48  # Tier 1/2 活跃仓库
+TIER2_MAX_AGE_HOURS = 168  # Tier 2 (startalent) 每周 push 即可
 
 
 def git_uncommitted(repo: str) -> int:
     """未提交文件数"""
-    r = subprocess.run(["git", "-C", str(PROJECTS_ROOT / repo), "status", "--porcelain"],
-                       capture_output=True, text=True, timeout=10)
+    r = subprocess.run(
+        ["git", "-C", str(PROJECTS_ROOT / repo), "status", "--porcelain"],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
     return len(r.stdout.splitlines())
 
 
@@ -41,7 +50,10 @@ def git_last_push(repo: str) -> float:
     """上次 push 时间 (unix)"""
     r = subprocess.run(
         ["git", "-C", str(PROJECTS_ROOT / repo), "log", "-1", "--format=%ct", "origin/main"],
-        capture_output=True, text=True, timeout=10)
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
     try:
         return float(r.stdout.strip())
     except ValueError:
@@ -128,12 +140,16 @@ def main():
         print("=== 仓库备份健康 ===")
         for repo, r in results["repos"].items():
             mark = "✅" if r.get("healthy") else "🔴"
-            print(f"  {mark} {repo}: 未提交={r.get('uncommitted','?')} push={r.get('last_push_hours','?')}h")
+            print(
+                f"  {mark} {repo}: 未提交={r.get('uncommitted', '?')} push={r.get('last_push_hours', '?')}h"
+            )
         print("=== 服务健康 ===")
         for svc, ok in results["services"].items():
             print(f"  {'✅' if ok else '🔴'} {svc}")
         d = results.get("disk", {})
-        print(f"=== 磁盘 ===\n  {'✅' if not d.get('warn') else '🔴'} 已用 {d.get('used_pct','?')}% (剩 {d.get('avail','?')})")
+        print(
+            f"=== 磁盘 ===\n  {'✅' if not d.get('warn') else '🔴'} 已用 {d.get('used_pct', '?')}% (剩 {d.get('avail', '?')})"
+        )
         if results["alerts"]:
             print("\n⚠️ 告警:")
             for a in results["alerts"]:
