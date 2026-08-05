@@ -26,7 +26,9 @@ telegram_bridge: pending
 dashboard_live_ready: pending
 market_insight: pending
 
-## Pending (Telegram 2026-08-01)
-- [ ] 分析 x.com/pluvio9yte/2082386081794961733 — 可借鉴技能 (抓取受限, 需手动分享内容)
-- [ ] 对标竞品: 企业 AI 落地服务定价/交付模式
-- [ ] 设计 "AI 落地 harness" 服务包: demo → 框架 → 培训 漏斗
+## Pending (Telegram 2026-08-01, 更新 2026-08-05)
+- [ ] 分析 x.com/pluvio9yte/2082386081794961733 — 可借鉴技能 (抓取受限, 需白云手动分享内容)
+- [x] 对标竞品: 企业 AI 落地服务定价/交付模式 → 见 .hermes/ai-harness-service-package.md
+- [x] 设计 "AI 落地 harness" 服务包: demo → 框架 → 培训 漏斗 → 见 .hermes/ai-harness-service-package.md (Tier 0-3)
+- [ ] 定价终稿 + 客户沟通脚本 (Tier 0/1 电销场景)
+- [ ] 寻找 1 个 pilot 客户验证 Tier 1 交付链路
