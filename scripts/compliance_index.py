@@ -192,8 +192,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--source",
-        default="/root/projects/china-ai-governance/ai-governance-legal/references",
-        help="md 文档目录",
+        default=str(Path.home() / "projects" / "china-ai-governance" / "ai-governance-legal" / "references"),
+        help="md 文档目录 (默认: china-ai-governance/ai-governance-legal/references)",
     )
     parser.add_argument("--rebuild", action="store_true", help="重建索引")
     parser.add_argument("--include-jsonl", action="store_true", help="包含 doc_parser 输出的 JSONL")

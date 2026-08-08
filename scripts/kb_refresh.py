@@ -30,7 +30,7 @@ from pathlib import Path
 
 INTEL_SRC = Path.home() / "projects" / "china-ai-governance" / "reports"
 INTEL_DST = Path(__file__).resolve().parent.parent / "data" / "scene2_intel"
-MARKET_SRC = Path("/opt/startalent/market_insight")  # job-scraper CI 写入 (runner 共享, VPS 遗留)
+MARKET_SRC = Path.home() / "projects" / "pulse-data-engine" / "data" / "market_knowledge"  # job-scraper CI 回流 (Mac runner)
 MARKET_DST = Path(__file__).resolve().parent.parent / "data" / "market_knowledge"
 SCRAPER = Path.home() / "projects" / "china-ai-governance" / "_intel_scraper_v2.py"
 INDEX_CMD = [
@@ -41,6 +41,9 @@ INDEX_CMD = [
     str(INTEL_DST),
     "--include-jsonl",
 ]
+# references 稳定参考文档源 (china-ai-governance 法律参考 — 随仓库更新自动入库)
+REFERENCES_SRC = Path.home() / "projects" / "china-ai-governance" / "ai-governance-legal" / "references"
+REFERENCES_DST = Path(__file__).resolve().parent.parent / "data" / "references"
 DB_PATH = Path(__file__).resolve().parent.parent / "data" / "compliance.duckdb"
 
 
@@ -121,6 +124,24 @@ def run_scraper(timeout: int = 240) -> bool:
         return False
 
 
+def sync_references() -> tuple[int, list[str]]:
+    """同步 china-ai-governance 法律参考文档 (references/) → data/references"""
+    REFERENCES_DST.mkdir(parents=True, exist_ok=True)
+    if not REFERENCES_SRC.exists():
+        return 0, []
+    existing = {p.name for p in REFERENCES_DST.glob("*.md")}
+    added: list[str] = []
+    for src in sorted(REFERENCES_SRC.rglob("*.md")):
+        if src.name not in existing:
+            shutil.copy2(src, REFERENCES_DST / src.name)
+            added.append(src.name)
+        elif src.stat().st_mtime > (REFERENCES_DST / src.name).stat().st_mtime:
+            # 已存在但更新 → 覆盖 (同步最新版本)
+            shutil.copy2(src, REFERENCES_DST / src.name)
+            added.append(src.name + " (更新)")
+    return len(added), added
+
+
 def index() -> dict:
     """增量索引 (幂等)"""
     r = subprocess.run(INDEX_CMD, capture_output=True, text=True, timeout=300)
@@ -170,15 +191,18 @@ def main():
     else:
         result["scraper"] = "skipped (--no-scrape)"
 
-    # 2. 同步新报告 (情报 + 市场)
+    # 2. 同步新报告 (情报 + 市场 + references)
     added_n, added = sync_reports()
     result["synced"] = added_n
     result["new_reports"] = added
     m_added, m_added_names = sync_market_insight()
     result["market_synced"] = m_added
     result["market_new"] = m_added_names
+    r_added, r_added_names = sync_references()
+    result["refs_synced"] = r_added
+    result["refs_new"] = r_added_names
 
-    # 3. 增量索引 (情报库 + 市场知识)
+    # 3. 增量索引 (情报库 + 市场知识 + references)
     idx = index()
     # 市场知识独立索引 (幂等)
     m_idx = subprocess.run(
@@ -195,8 +219,23 @@ def main():
         cwd=Path(__file__).resolve().parent.parent,
         timeout=300,
     )
+    r_idx = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "scripts.compliance_index",
+            "--source",
+            str(REFERENCES_DST),
+            "--include-jsonl",
+        ],
+        capture_output=True,
+        text=True,
+        cwd=Path(__file__).resolve().parent.parent,
+        timeout=300,
+    )
     result["index"] = idx
     result["market_index_exit"] = m_idx.returncode
+    result["refs_index_exit"] = r_idx.returncode
 
     # 4. 验证
     v = verify()
