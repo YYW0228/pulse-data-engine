@@ -28,11 +28,11 @@ import sys
 import time
 from pathlib import Path
 
-INTEL_SRC = Path("/root/DELIVERY_WORKSPACE/china-ai-governance/reports")
+INTEL_SRC = Path.home() / "projects" / "china-ai-governance" / "reports"
 INTEL_DST = Path(__file__).resolve().parent.parent / "data" / "scene2_intel"
-MARKET_SRC = Path("/opt/startalent/market_insight")  # job-scraper CI 写入 (runner 共享)
+MARKET_SRC = Path("/opt/startalent/market_insight")  # job-scraper CI 写入 (runner 共享, VPS 遗留)
 MARKET_DST = Path(__file__).resolve().parent.parent / "data" / "market_knowledge"
-SCRAPER = Path("/root/projects/china-ai-governance/_intel_scraper_v2.py")
+SCRAPER = Path.home() / "projects" / "china-ai-governance" / "_intel_scraper_v2.py"
 INDEX_CMD = [
     sys.executable,
     "-m",
