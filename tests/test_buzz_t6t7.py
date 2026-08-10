@@ -27,10 +27,10 @@ def test_t7_none_semantics(tmp_path, monkeypatch):
 
 
 def test_t6_threshold():
-    """T6: HANDOFF_THRESHOLD 定义且为 8"""
+    """T6: HANDOFF_THRESHOLD 定义且为 6 (handoff_earlier 落地, A/B 通过)"""
     import scripts.compliance_qa as cqa
 
-    assert cqa.HANDOFF_THRESHOLD == 8
+    assert cqa.HANDOFF_THRESHOLD == 6
 
 
 def test_t6_handoff_degradation(monkeypatch):
