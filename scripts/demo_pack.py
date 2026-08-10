@@ -44,7 +44,8 @@ def main() -> None:
         try:
             r = answer(q, top_k=3)
             ms = int((time.time() - t0) * 1000)
-            ok = len(r) > 200 and ("[文档:" in r or "根据参考" in r)
+            # 有引用溯源即算命中 (回答长度不是质量判据 — 短而准确的回答也是对的)
+            ok = ("[文档:" in r or "引用来源" in r) and "❌" not in r and "未找到" not in r
             out.append(f"## {q}\n")
             out.append(f"> 期望: {expect} | {'✅' if ok else '❌'} | {ms}ms\n")
             out.append(r.strip() + "\n")
