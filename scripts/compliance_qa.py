@@ -426,6 +426,70 @@ def _generate_handoff(history: list[dict[str, str]], api_key: str, model_name: s
         return None
 
 
+# ── 中间件链 (middleware_chain 最小版, 结构提案 middleware_min) ──
+# 护栏抽成可插拔列表: 新增护栏只需 append; 每次命中计数 (新 Process 信号)
+GUARD_STATS: dict[str, int] = {"intent": 0, "budget": 0, "loop": 0}
+
+
+def _guards_run(query: str, chunks: list[dict], budget: dict | None,
+                t0: float, tracer) -> str | None:
+    """执行护栏链 → 返回拒绝/终止消息或 None (放行)
+
+    当前守卫 (按序):
+      1. intent_guard: 非事实查询拒绝
+      2. budget_guard: token 预算闸门
+      3. loop_guard: 重复检索循环终止
+    """
+    # ── 守卫 1: 意图分类 (Meta-Loop 提案1: 前置拦截非事实查询) ──
+    intent = classify_intent(query)
+    if tracer:
+        tracer.step("intent", {"intent": intent})
+    if intent != "factual_query":
+        GUARD_STATS["intent"] += 1
+        rejection = INTENT_REJECT.get(intent, INTENT_REJECT["instruction_attack"])
+        _record_metric(query, (time.time() - t0) * 1000, 0, 0, None, None, True,
+                       error=f"intent:{intent}")
+        if tracer:
+            tracer.step("reject", {"intent": intent})
+            tracer.save({"success": True, "intent": intent, "rejected": True})
+        return rejection
+
+    # ── 守卫 2: Token Budget 闸门 (源自 DeerFlow, 超限 capped 不抛异常) ──
+    if budget:
+        try:
+            from experiments.token_budget import TokenBudget
+
+            check = TokenBudget(**budget).check()
+            if not check["allowed"]:
+                GUARD_STATS["budget"] += 1
+                _record_metric(query, (time.time() - t0) * 1000, 0, 0, 0, 0,
+                               True, error=f"budget:{check['reason']}")
+                return f"⚠️ 会话预算已用尽 ({check['reason']})。请开始新会话。\n\n引用来源：无（预算限制）"
+        except Exception:
+            pass  # 预算检查失败不阻断
+
+    # ── 守卫 3: Loop Detection (源自 DeerFlow: 重复检索模式 → 终止) ──
+    try:
+        from experiments.loop_detection import LoopDetector
+
+        fp = LoopDetector.fingerprint(query, [c["doc"] for c in chunks])
+        status = _loop_detector.record(fp) if _loop_detector else "ok"
+        if status == "capped":
+            GUARD_STATS["loop"] += 1
+            _record_metric(query, (time.time() - t0) * 1000, len(chunks), 0, 0, 0,
+                           True, error="loop_capped")
+            return "⚠️ 检测到重复检索循环 (loop_capped)，已停止以避免浪费。请换一种问法或开始新话题。\n\n引用来源：无（循环终止）"
+    except Exception:
+        pass  # 循环检测失败不阻断
+
+    return None
+
+
+def _guard_stats() -> dict:
+    """护栏命中统计 (Process 信号, middleware_min 产物)"""
+    return dict(GUARD_STATS)
+
+
 def answer(query: str, top_k: int = 3, mask_metadata: bool = True,
            history: list[dict[str, str]] | None = None,
            budget: dict | None = None) -> str:
@@ -457,22 +521,14 @@ def answer(query: str, top_k: int = 3, mask_metadata: bool = True,
                 tracer.save({"success": True, "model": "memory_cache"})
             return hit["answer"]
 
-    # ── 意图分类 (Meta-Loop 提案1: 前置拦截非事实查询) ──
-    intent = classify_intent(query)
-    if tracer:
-        tracer.step("intent", {"intent": intent})
-    if intent != "factual_query":
-        rejection = INTENT_REJECT.get(intent, INTENT_REJECT["instruction_attack"])
-        _record_metric(query, (time.time() - t0) * 1000, 0, 0, None, None, True,
-                       error=f"intent:{intent}")
-        if tracer:
-            tracer.step("reject", {"intent": intent})
-            tracer.save({"success": True, "intent": intent, "rejected": True})
-        return rejection
-
-    # 先编译 (带内部评分, 供路由决策)
+    # ── 中间件链执行 (middleware_min): 意图/预算/loop 守卫按序运行 ──
+    # 先编译检索块 (loop 守卫需要 chunks 指纹; budget 守卫独立)
     chunks = compile_context(query, top_k, mask_metadata=False)
     compile_ms = (time.time() - t0) * 1000
+
+    guard_stop = _guards_run(query, chunks, budget, t0, tracer)
+    if guard_stop is not None:
+        return guard_stop
 
     if tracer:
         tracer.step("retrieve", {"chunks": len(chunks), "top_sim": round(chunks[0]["hits"], 3) if chunks else 0,
@@ -487,34 +543,8 @@ def answer(query: str, top_k: int = 3, mask_metadata: bool = True,
                 "1. 到国家网信办官网备案系统核查\n"
                 "2. 联系我们补充该数据源到知识库")
 
-    # ── Token Budget 闸门 (源自 DeerFlow, 超限 capped 不抛异常) ──
-    if budget:
-        try:
-            from experiments.token_budget import TokenBudget
-
-            check = TokenBudget(**budget).check()
-            if not check["allowed"]:
-                _record_metric(query, (time.time() - t0) * 1000, 0, 0, 0, 0,
-                               True, error=f"budget:{check['reason']}")
-                return f"⚠️ 会话预算已用尽 ({check['reason']})。请开始新会话。\n\n引用来源：无（预算限制）"
-        except Exception:
-            pass  # 预算检查失败不阻断
-
     # Model 路由 (用未屏蔽的相似度决策)
     model_name = _route_model(query, chunks)
-
-    # ── Loop Detection (源自 DeerFlow: 重复检索模式 → 终止) ──
-    try:
-        from experiments.loop_detection import LoopDetector
-
-        fp = LoopDetector.fingerprint(query, [c["doc"] for c in chunks])
-        status = _loop_detector.record(fp) if _loop_detector else "ok"
-        if status == "capped":
-            _record_metric(query, (time.time() - t0) * 1000, len(chunks), 0, 0, 0,
-                           True, error="loop_capped")
-            return "⚠️ 检测到重复检索循环 (loop_capped)，已停止以避免浪费。请换一种问法或开始新话题。\n\n引用来源：无（循环终止）"
-    except Exception:
-        pass  # 循环检测失败不阻断
 
     if tracer:
         tracer.step("route", {"model": model_name, "avg_sim": round(sum(c["hits"] for c in chunks) / len(chunks), 3)})

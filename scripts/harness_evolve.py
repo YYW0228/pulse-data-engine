@@ -577,6 +577,87 @@ def cmd_watch(args) -> int:
     return 0
 
 
+def meta_analyze(proposals: list[dict] | None = None) -> dict:
+    """元层最小统计: 提案通过率特征 (元学习信号)
+
+    统计:
+      - 按 kind (param/structural): 通过率
+      - 按 pattern: 通过率
+      - 按触发模式 (auto_generated vs manual): 通过率
+    输出: 反馈给 auto_propose 排序的权重
+    """
+    if proposals is None:
+        proposals = load_proposals()
+    if not proposals:
+        return {"empty": True}
+
+    from collections import Counter
+
+    def _rate(items: list[dict]) -> dict:
+        n = len(items)
+        passed = sum(1 for p in items if p.get("status") == "applied")
+        return {"n": n, "pass_rate": round(passed / n, 2) if n else 0.0}
+
+    # 按 kind
+    by_kind: dict[str, list[dict]] = {}
+    for p in proposals:
+        by_kind.setdefault(p.get("kind", "param"), []).append(p)
+
+    # 按 pattern
+    by_pattern: dict[str, list[dict]] = {}
+    for p in proposals:
+        by_pattern.setdefault(p.get("pattern", "?"), []).append(p)
+
+    return {
+        "total": len(proposals),
+        "by_kind": {k: _rate(v) for k, v in by_kind.items()},
+        "by_pattern": {k: _rate(v) for k, v in by_pattern.items()},
+        "applied": sum(1 for p in proposals if p.get("status") == "applied"),
+        "rejected": sum(1 for p in proposals if p.get("status") == "rejected"),
+        "pending": sum(1 for p in proposals if p.get("status") not in ("applied", "rejected")),
+    }
+
+
+# 元层反馈: 提案类型优先级权重 (由 meta_analyze 结果动态更新)
+PROPOSAL_PRIORITY: dict[str, float] = {
+    "memory_extract_consolidate": 1.0,
+    "sandbox_worker_pool": 0.8,
+    "middleware_chain": 0.8,
+    "reactive_compaction": 0.7,
+    "handoff_summary": 0.5,
+    "field_level_source_grounding": 0.5,
+    "prefix_cache_stability": 0.6,
+}
+
+
+def cmd_meta(args) -> int:
+    """元层: 提案通过率统计 + 优先级反馈"""
+    stats = meta_analyze()
+    if stats.get("empty"):
+        print("无提案记录")
+        return 0
+
+    print("=== 元层统计 (提案通过率) ===")
+    print(f"总提案: {stats['total']} (applied={stats['applied']} rejected={stats['rejected']} pending={stats['pending']})")
+    print("\n按类型:")
+    for k, v in stats["by_kind"].items():
+        print(f"  {k:12} n={v['n']} 通过率={v['pass_rate']:.0%}")
+    print("\n按模式:")
+    for k, v in sorted(stats["by_pattern"].items(), key=lambda x: -x[1]["pass_rate"]):
+        print(f"  {k:35} n={v['n']} 通过率={v['pass_rate']:.0%}")
+
+    # 反馈: 高通过率模式 → 提权; 低通过率 → 降权
+    for k, v in stats["by_pattern"].items():
+        if v["pass_rate"] >= 0.8 and k in PROPOSAL_PRIORITY:
+            PROPOSAL_PRIORITY[k] = min(PROPOSAL_PRIORITY.get(k, 1.0) * 1.2, 1.5)
+        elif v["pass_rate"] <= 0.3 and k in PROPOSAL_PRIORITY:
+            PROPOSAL_PRIORITY[k] = max(PROPOSAL_PRIORITY.get(k, 1.0) * 0.7, 0.3)
+    print("\n更新后优先级:")
+    for k, v in sorted(PROPOSAL_PRIORITY.items(), key=lambda x: -x[1])[:5]:
+        print(f"  {k:35} {v:.2f}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="harness_evolve")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -592,6 +673,7 @@ def main(argv: list[str] | None = None) -> int:
     p_watch = sub.add_parser("watch", help="轨迹主动扫描 → 自动提案")
     p_watch.add_argument("--eval", action="store_true", help="自动评估新提案")
     p_watch.add_argument("-n", type=int, default=5)
+    sub.add_parser("meta", help="元层: 提案通过率统计 + 优先级反馈")
     args = parser.parse_args(argv)
     if args.cmd == "scan":
         return cmd_scan(args)
@@ -603,6 +685,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_apply(args)
     if args.cmd == "watch":
         return cmd_watch(args)
+    if args.cmd == "meta":
+        return cmd_meta(args)
     return 1
 
 

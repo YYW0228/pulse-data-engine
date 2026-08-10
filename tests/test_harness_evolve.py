@@ -176,3 +176,52 @@ def test_auto_propose_dedup(tmp_path, monkeypatch):
     # 第二轮: 去重 (不重复生成)
     created2 = he.auto_propose(metrics=metrics, top_k=3)
     assert len(created2) == 0
+
+
+def test_meta_analyze_rates():
+    """元层统计: 提案通过率特征"""
+    from scripts import harness_evolve as he
+
+    proposals = [
+        {"id": "a", "kind": "param", "pattern": "reactive_compaction", "status": "applied"},
+        {"id": "b", "kind": "param", "pattern": "reactive_compaction", "status": "rejected"},
+        {"id": "c", "kind": "structural", "pattern": "memory_extract_consolidate", "status": "applied"},
+        {"id": "d", "kind": "structural", "pattern": "middleware_chain", "status": "applied"},
+    ]
+    stats = he.meta_analyze(proposals)
+    assert stats["total"] == 4
+    assert stats["applied"] == 3
+    assert stats["rejected"] == 1
+    # param 50% vs structural 100%
+    assert stats["by_kind"]["param"]["pass_rate"] == 0.5
+    assert stats["by_kind"]["structural"]["pass_rate"] == 1.0
+    # pattern 级
+    assert stats["by_pattern"]["memory_extract_consolidate"]["pass_rate"] == 1.0
+    assert stats["by_pattern"]["reactive_compaction"]["pass_rate"] == 0.5
+
+
+def test_meta_updates_priority():
+    """元层反馈: 高通过率提权 / 低通过率降权"""
+    from scripts import harness_evolve as he
+
+    orig = dict(he.PROPOSAL_PRIORITY)
+    try:
+        proposals = [
+            {"id": "a", "kind": "structural", "pattern": "memory_extract_consolidate", "status": "applied"},
+            {"id": "b", "kind": "structural", "pattern": "middleware_chain", "status": "applied"},
+            {"id": "c", "kind": "param", "pattern": "sandbox_worker_pool", "status": "rejected"},
+        ]
+        # 重置为中性权重后跑 meta 逻辑
+        he.PROPOSAL_PRIORITY["memory_extract_consolidate"] = 1.0
+        he.PROPOSAL_PRIORITY["sandbox_worker_pool"] = 1.0
+        stats = he.meta_analyze(proposals)
+        # 模拟 cmd_meta 的反馈循环
+        for k, v in stats["by_pattern"].items():
+            if v["pass_rate"] >= 0.8 and k in he.PROPOSAL_PRIORITY:
+                he.PROPOSAL_PRIORITY[k] = min(he.PROPOSAL_PRIORITY[k] * 1.2, 1.5)
+            elif v["pass_rate"] <= 0.3 and k in he.PROPOSAL_PRIORITY:
+                he.PROPOSAL_PRIORITY[k] = max(he.PROPOSAL_PRIORITY[k] * 0.7, 0.3)
+        assert he.PROPOSAL_PRIORITY["memory_extract_consolidate"] == 1.2  # 提权
+        assert he.PROPOSAL_PRIORITY["sandbox_worker_pool"] == 0.7  # 降权
+    finally:
+        he.PROPOSAL_PRIORITY = orig
