@@ -72,7 +72,7 @@ def test_propose_writes_file(monkeypatch, tmp_path, metrics_file):
     rc = he.cmd_propose(type("A", (), {"n": 5})())
     assert rc == 0
     proposals = he.PROPOSALS.read_text().splitlines()
-    assert len(proposals) == len(he.PARAM_VARIANTS)
+    assert len(proposals) == len(he.PARAM_VARIANTS) + len(he.STRUCTURAL_VARIANTS)
     p = json.loads(proposals[0])
     assert "regression_set" in p
     assert p["threshold"]["min_citation_delta"] == 0.0

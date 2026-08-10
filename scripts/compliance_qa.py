@@ -50,6 +50,54 @@ LARGE_CHUNK_CHARS = 4000  # 单块超过此长度 → 转存文件 (reactive_com
 HANDOFF_THRESHOLD = 8     # history 超过 8 轮 → 生成交接摘要 (T6, buzz 模式)
 DUMP_DIR = Path(__file__).resolve().parent.parent / "data" / "context_dumps"
 
+# ── 记忆缓存 (memory_extract_consolidate 最小版, 结构提案 memory_extract_min) ──
+MEMORY_CACHE_PATH = Path(__file__).resolve().parent.parent / "data" / "qa_memory_cache.jsonl"
+_memory_cache: dict[str, dict] = {}
+
+
+def _load_memory_cache() -> None:
+    """加载记忆缓存 (query → {answer, citations, ts})"""
+    global _memory_cache
+    if _memory_cache or not MEMORY_CACHE_PATH.exists():
+        return
+    for line in MEMORY_CACHE_PATH.read_text().splitlines():
+        try:
+            import json as _json
+            d = _json.loads(line)
+            _memory_cache[d["query"]] = d
+        except Exception:
+            continue
+
+
+def _memory_get(query: str) -> dict | None:
+    """记忆命中: 完全一致 query 且缓存有效 → 返回答案 (跳过检索)"""
+    _load_memory_cache()
+    hit = _memory_cache.get(query)
+    if hit and hit.get("citations", 0) > 0:
+        return hit
+    return None
+
+
+def _memory_put(query: str, answer: str, citations: int) -> None:
+    """记忆写入: 成功且有引用才缓存 (防污染)"""
+    if not query or len(answer) < 200 or citations == 0:
+        return
+    import json as _json
+    entry = {"query": query, "answer": answer, "citations": citations,
+             "ts": __import__("time").strftime("%Y-%m-%d %H:%M:%S")}
+    _memory_cache[query] = entry
+    try:
+        with MEMORY_CACHE_PATH.open("a") as f:
+            f.write(_json.dumps(entry, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+
+def _memory_stats() -> dict:
+    """记忆缓存统计 (可观测信号)"""
+    _load_memory_cache()
+    return {"entries": len(_memory_cache)}
+
 
 def _dump_large_chunk(doc: str, title: str, content: str) -> str:
     """大块转存: 返回落盘路径 (mini-claude-code toolResultBudget 思路)"""
@@ -397,6 +445,18 @@ def answer(query: str, top_k: int = 3, mask_metadata: bool = True,
     except Exception:
         tracer = None
 
+    # ── 记忆缓存命中 (memory_extract_min): 同 query 已有成功回答 → 直接返回 ──
+    if not history:  # 多轮对话不缓存 (上下文相关)
+        hit = _memory_get(query)
+        if hit:
+            _record_metric(query, (time.time() - t0) * 1000, 0,
+                           hit.get("citations", 0), 0, 0, True,
+                           model="memory_cache", cache_hit=True)
+            if tracer:
+                tracer.step("memory_hit", {"citations": hit.get("citations", 0)})
+                tracer.save({"success": True, "model": "memory_cache"})
+            return hit["answer"]
+
     # ── 意图分类 (Meta-Loop 提案1: 前置拦截非事实查询) ──
     intent = classify_intent(query)
     if tracer:
@@ -545,6 +605,9 @@ def answer(query: str, top_k: int = 3, mask_metadata: bool = True,
         _record_metric(query, (time.time() - t0) * 1000, len(chunks), citations,
                        tokens_in_estimate, tokens_out, True, model=model_name,
                        cache_hit=cache_hit)
+        # ── 记忆写入 (memory_extract_min): 成功且有引用 → 缓存供重复查询命中 ──
+        if not history:
+            _memory_put(query, answer_text, citations)
         if tracer:
             tracer.step("answer", {"model": model_name, "tokens_in": tokens_in_estimate,
                                    "tokens_out": tokens_out, "citations": citations,

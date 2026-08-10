@@ -83,6 +83,40 @@ PARAM_VARIANTS = {
     },
 }
 
+# ── 结构级提案 (机制插入点, 带可验证预测) ──
+# 每个提案: 插入点 + 伪代码 + 可验证预测 (预期指标变化, 供 A/B 判定)
+STRUCTURAL_VARIANTS = {
+    "memory_extract_min": {
+        "pattern": "memory_extract_consolidate",
+        "mechanism": "记忆提取最小版: answer 后把 (query, citations, ok) 写入 memory 表; 下次同 query 先查记忆命中则跳过检索",
+        "insert_point": "compliance_qa.answer() 开头: 查 memory_cache → 命中直接返回; 结尾: 写入 memory_cache",
+        "pseudocode": """
+            # answer() 开头
+            hit = memory.get(query)
+            if hit: return hit
+            # answer() 结尾 (成功且有引用时)
+            memory.put(query, answer, citations)
+        """,
+        "prediction": "重复查询耗时下降 ≥50% (缓存命中); 引用率不降",
+        "tests": ["同 query 二次命中耗时 <1s", "不同 query 不误命中", "引用率不降"],
+        "threshold": {"min_citation_delta": -0.05, "max_ms_increase_pct": 10},
+    },
+    "middleware_min": {
+        "pattern": "middleware_chain",
+        "mechanism": "中间件链最小版: 把 answer 的护栏检查 (意图分类/预算/loop) 抽成可插拔列表, 支持按查询动态开关",
+        "insert_point": "compliance_qa.answer() 护栏段 → 提取为 _GUARDS 列表",
+        "pseudocode": """
+            _GUARDS = [intent_guard, budget_guard, loop_guard]
+            for g in _GUARDS:
+                stop = g(query, state)
+                if stop: return stop
+        """,
+        "prediction": "护栏代码行数减少 + 每轮 answer 可观测 guard 命中次数 (新信号); 行为不变",
+        "tests": ["意图分类拒绝仍工作", "预算闸门仍工作", "loop 检测仍工作"],
+        "threshold": {"min_citation_delta": 0.0, "max_ms_increase_pct": 5},
+    },
+}
+
 
 def load_metrics() -> list[dict]:
     if not METRICS.exists():
@@ -159,29 +193,74 @@ def apply_params(params: dict, mod) -> dict:
 
 
 def run_regression(queries: list[str], top_k: int = 3) -> list[dict]:
-    """跑回归集 → 结果列表 (不改代码, 用当前模块状态)"""
+    """跑回归集 → 结果列表 (不改代码, 用当前模块状态)
+
+    过程信号 (Process RM 轻量版):
+      - loop_triggered: Loop Detection 是否触发 (重复检索模式)
+      - low_confidence: 平均相似度 < 0.6 (低置信度检索)
+      - empty_answer: 回答为空/过短
+    """
     from scripts import compliance_qa as qa
 
     results = []
     for q in queries:
         t0 = time.time()
+        loop = False
+        low_conf = False
+        empty = False
         try:
+            # 检索置信度探测 (compile_context 内部评分)
+            try:
+                chunks = qa.compile_context(q, top_k=top_k, mask_metadata=False)
+                if chunks:
+                    avg_sim = sum(c.get("hits", 0) for c in chunks) / len(chunks)
+                    low_conf = avg_sim < 0.6
+            except Exception:
+                pass
+            # 记录 loop 检测器状态变化 (回答前快照)
+            try:
+                from scripts.compliance_qa import _loop_detector
+                before = None
+                if _loop_detector:
+                    before = _loop_detector._hits if hasattr(_loop_detector, "_hits") else 0
+            except Exception:
+                before = None
+
             r = qa.answer(q, top_k=top_k)
             ms = (time.time() - t0) * 1000
             citations = r.count("文档:")
+            empty = len(r.strip()) < 100
+
+            # loop 触发: 回答包含 loop 终止标记
+            loop = "loop_capped" in r or "重复检索循环" in r
+
             results.append({"query": q, "ms": round(ms, 1), "citations": citations,
-                            "ok": len(r) > 200 and citations > 0})
+                            "ok": len(r) > 200 and citations > 0,
+                            "loop_triggered": loop, "low_confidence": low_conf,
+                            "empty_answer": empty})
         except Exception as e:
             results.append({"query": q, "ms": 0, "citations": 0, "ok": False,
-                            "error": str(e)[:50]})
+                            "loop_triggered": False, "low_confidence": False,
+                            "empty_answer": True, "error": str(e)[:50]})
     return results
 
 
 def summarize(results: list[dict]) -> dict:
     cit_ok = sum(1 for r in results if r["citations"] > 0)
     avg_ms = sum(r["ms"] for r in results) / max(len(results), 1)
-    return {"citation_rate": cit_ok / max(len(results), 1),
-            "avg_ms": round(avg_ms, 1), "n": len(results)}
+    n = max(len(results), 1)
+    # 过程信号汇总 (Process RM)
+    loop = sum(1 for r in results if r.get("loop_triggered"))
+    low_conf = sum(1 for r in results if r.get("low_confidence"))
+    empty = sum(1 for r in results if r.get("empty_answer"))
+    return {
+        "citation_rate": cit_ok / n,
+        "avg_ms": round(avg_ms, 1),
+        "n": len(results),
+        "loop_triggered": loop,
+        "low_confidence_rate": round(low_conf / n, 2),
+        "empty_answer": empty,
+    }
 
 
 # ── 命令实现 ──
@@ -210,29 +289,36 @@ def cmd_propose(args) -> int:
         m = w["metric"]
         print(f"  [{w['score']}分] {w['query'][:40]} | cit={m.get('citations')} ms={m.get('ms')}")
 
-    print(f"\n实验目录: {len(PARAM_VARIANTS)} 个参数变异")
+    print(f"\n实验目录: {len(PARAM_VARIANTS)} 个参数变异 + {len(STRUCTURAL_VARIANTS)} 个结构提案")
     created = 0
     existing_ids = {p.get("id") for p in load_proposals()}
-    for pid, variant in PARAM_VARIANTS.items():
+    for pid, variant in {**PARAM_VARIANTS, **STRUCTURAL_VARIANTS}.items():
         if pid in existing_ids:
             print(f"  = [{pid}] 已存在, 跳过 (去重)")
             continue
+        is_structural = pid in STRUCTURAL_VARIANTS
         proposal = {
             "id": pid,
             "ts": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "kind": "structural" if is_structural else "param",
             "pattern": variant["pattern"],
-            "params": variant["params"],
-            "rationale": variant["rationale"],
-            "diff": variant["diff"],
+            "rationale": variant["rationale"] if not is_structural else variant["mechanism"],
+            "diff": variant["diff"] if not is_structural else variant["insert_point"],
             "tests": variant["tests"],
             "threshold": variant["threshold"],
             "regression_set": [w["query"] for w in worst],
             "status": "proposed",
         }
+        if is_structural:
+            proposal["pseudocode"] = variant.get("pseudocode", "")
+            proposal["prediction"] = variant.get("prediction", "")
+        else:
+            proposal["params"] = variant["params"]
         with PROPOSALS.open("a") as f:
             f.write(json.dumps(proposal, ensure_ascii=False) + "\n")
         created += 1
-        print(f"  + [{pid}] {variant['params']} — {variant['rationale']}")
+        kind = "结构" if is_structural else "参数"
+        print(f"  + [{pid}] ({kind}) — {proposal['rationale'][:60]}")
 
     print(f"\n→ 已生成 {created} 个提案 → {PROPOSALS}")
     return 0
@@ -251,7 +337,28 @@ def cmd_evaluate(args) -> int:
 
     queries = prop.get("regression_set") or [w["query"] for w in worst_questions(args.n)]
     print(f"=== A/B 评估: {args.proposal} ===")
-    print(f"变异: {prop['params']} | 理由: {prop['rationale']}")
+    if prop.get("kind") == "structural":
+        print(f"结构提案: {prop['rationale']}")
+        print(f"插入点: {prop.get('diff', '')}")
+        print(f"可验证预测: {prop.get('prediction', '')}")
+        print(f"⚠️ 结构提案需手动实现后重跑 (evaluate 仅记录基线)")
+        # 只记录基线, 不应用 (无 params)
+        base_results = run_regression(queries, top_k=args.top_k)
+        base = summarize(base_results)
+        prop["status"] = "implementing"
+        prop["evaluation"] = {
+            "ts": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "baseline": base, "decision": "pending_implementation",
+            "reason": "结构提案: 基线已记录, 待手动实现后重跑对比",
+        }
+        lines = [json.dumps(p, ensure_ascii=False) for p in proposals]
+        PROPOSALS.write_text("\n".join(lines) + "\n")
+        print(f"基线: 引用率 {base['citation_rate']:.2f} | 平均 {base['avg_ms']}ms | "
+              f"loop={base['loop_triggered']} 低置信={base['low_confidence_rate']}")
+        print(f"→ 状态: {prop['status']} (实现后重跑 evaluate)")
+        return 0
+
+    print(f"变异: {prop.get('params', {})} | 理由: {prop['rationale']}")
     print(f"diff: {prop['diff']}")
     print(f"回归集: {len(queries)} 问\n")
 
