@@ -31,8 +31,9 @@ def test_should_parallel_customer_db():
 
 
 def test_retrieve_global_returns_rows():
-    """全局库检索 (真实库, 只验证函数契约)"""
-    from scripts.parallel import _global_db, _retrieve_global
+    """全局库检索 (真实库, 只验证函数契约) — 需 embedding 模型"""
+    pytest.importorskip("sentence_transformers", reason="需要 ml 组依赖")
+    from scripts.parallel import _retrieve_global, _global_db
 
     rows = _retrieve_global("算法备案", 3, _global_db())
     assert isinstance(rows, list)
