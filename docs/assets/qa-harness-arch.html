@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI 合规问答 Harness — 架构图</title>
+<style>
+  :root {
+    --bg0: #0a0e1a;
+    --bg1: #0f1626;
+    --accent: #c6f24e;
+    --accent2: #4dd0e1;
+    --accent3: #ff8a65;
+    --text: #e8ecf4;
+    --dim: #8a93a8;
+    --border: rgba(198, 242, 78, 0.25);
+    --card: rgba(255,255,255,0.04);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: radial-gradient(1200px 600px at 50% -10%, #16203a 0%, var(--bg0) 55%), var(--bg0);
+    color: var(--text);
+    padding: 32px 40px;
+    min-height: 100vh;
+  }
+  /* ── 顶部: 标题 + GitHub + 一句话亮点 ── */
+  .header { text-align: center; margin-bottom: 28px; }
+  .title {
+    font-size: 30px; font-weight: 700; letter-spacing: 1px;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .subtitle { color: var(--dim); font-size: 13px; margin-top: 8px; }
+  .subtitle a { color: var(--accent2); text-decoration: none; }
+  .tagline {
+    display: inline-block; margin-top: 12px; padding: 7px 18px;
+    border: 1px solid var(--border); border-radius: 999px;
+    background: rgba(198,242,78,0.07); color: var(--accent);
+    font-size: 13px; font-weight: 500;
+  }
+  /* ── 亮点条 (结论先行) ── */
+  .highlights {
+    display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-bottom: 26px;
+  }
+  .hl {
+    padding: 8px 16px; border-radius: 8px; font-size: 12.5px; font-weight: 600;
+    background: var(--card); border: 1px solid rgba(255,255,255,0.08);
+  }
+  .hl b { color: var(--accent); }
+  .hl.blue b { color: var(--accent2); }
+  .hl.orange b { color: var(--accent3); }
+  /* ── 三层布局 ── */
+  .layers { display: flex; flex-direction: column; gap: 14px; }
+  .layer {
+    border: 1px solid rgba(255,255,255,0.09); border-radius: 12px;
+    background: var(--card); padding: 14px 16px 16px;
+  }
+  .layer-head {
+    font-size: 12px; font-weight: 700; letter-spacing: 2px; color: var(--dim);
+    text-transform: uppercase; margin-bottom: 10px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .layer-head .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .l1 .dot { background: var(--accent2); }
+  .l2 .dot { background: var(--accent); }
+  .l3 .dot { background: var(--accent3); }
+  /* ── 节点链 (横向流程) ── */
+  .flow { display: flex; align-items: stretch; gap: 0; flex-wrap: wrap; }
+  .node {
+    flex: 1 1 0; min-width: 96px; padding: 10px 8px; border-radius: 8px;
+    background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);
+    text-align: center; font-size: 12px; line-height: 1.5;
+  }
+  .node .en { color: var(--dim); font-size: 10px; display: block; }
+  .node.hot { border-color: var(--border); background: rgba(198,242,78,0.08); }
+  .node.hot .cn { color: var(--accent); font-weight: 600; }
+  .arrow {
+    align-self: center; color: var(--accent2); font-size: 15px; font-weight: 700;
+    padding: 0 6px; flex: 0 0 auto;
+  }
+  /* ── 子组 (工程化/部署/评测) ── */
+  .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .subcard {
+    border-radius: 8px; padding: 10px 12px; background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+  }
+  .subcard h4 { font-size: 12px; color: var(--accent2); margin-bottom: 6px; }
+  .subcard ul { list-style: none; font-size: 11px; color: var(--dim); line-height: 1.7; }
+  .subcard ul li::before { content: "▸ "; color: var(--accent); }
+  .subcard ul li b { color: var(--text); }
+  .foot { text-align: center; margin-top: 18px; color: var(--dim); font-size: 11px; }
+  .foot b { color: var(--accent); }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="title">AI 合规问答 Harness</div>
+  <div class="subtitle">github.com/YYW0228/pulse-data-engine · docs/qa-harness-mindmap.md · Python · DuckDB VSS · DeepSeek · 月运营费 $0</div>
+  <div class="tagline">⚡ 3 秒出带引用的合规答案 · 每条可回溯法条原文 · 系统自己会进化 (共进化闭环)</div>
+</div>
+
+<div class="highlights">
+  <div class="hl">演示命中 <b>10/10</b> 全局库+客户库</div>
+  <div class="hl blue">重复查询 <b>330x</b> 加速 (43ms)</div>
+  <div class="hl">引用率 <b>100%</b> + 证据包导出</div>
+  <div class="hl orange">共进化 <b>7 applied / 10</b> 提案</div>
+  <div class="hl blue">结构级改进 <b>4/4</b> 全过全落地</div>
+</div>
+
+<div class="layers">
+
+  <!-- 第一层: 用户入口 -->
+  <div class="layer l1">
+    <div class="layer-head"><span class="dot"></span>LAYER 1 · 用户入口</div>
+    <div class="flow">
+      <div class="node">用户提问<div class="en">Question</div></div>
+      <div class="arrow">→</div>
+      <div class="node hot">意图分类<div class="en">Intent Guard</div></div>
+      <div class="arrow">→</div>
+      <div class="node">拦截 攻击/越权/探测<div class="en">Reject</div></div>
+      <div class="arrow">→</div>
+      <div class="node">Streamlit 8502<div class="en">UI / API</div></div>
+    </div>
+  </div>
+
+  <!-- 第二层: 核心 Agent 循环 -->
+  <div class="layer l2">
+    <div class="layer-head"><span class="dot"></span>LAYER 2 · 核心 Agent 循环 (RAG + 记忆 + 验证)</div>
+    <div class="flow">
+      <div class="node">记忆缓存命中?<div class="en">43ms</div></div>
+      <div class="arrow">→</div>
+      <div class="node hot">DuckDB VSS 检索<div class="en">bge-small-zh · HNSW</div></div>
+      <div class="arrow">→</div>
+      <div class="node">客户库↔全局库回退<div class="en">Fallback</div></div>
+      <div class="arrow">→</div>
+      <div class="node hot">MMR 多样性重排<div class="en">λ=0.8</div></div>
+      <div class="arrow">→</div>
+      <div class="node">长度预算 + 大块转存<div class="en">8K chars</div></div>
+      <div class="arrow">→</div>
+      <div class="node hot">DeepSeek 生成<div class="en">路由 + PrefixCache 83%</div></div>
+      <div class="arrow">→</div>
+      <div class="node hot">postgen_verify<div class="en">引用一致 · 自洽</div></div>
+      <div class="arrow">→</div>
+      <div class="node">记忆写入 + 证据包<div class="en">PDF 交付</div></div>
+    </div>
+  </div>
+
+  <!-- 第三层: 工程化 (缓存/监控/评测/部署) -->
+  <div class="layer l3">
+    <div class="layer-head"><span class="dot"></span>LAYER 3 · 工程化: 缓存 · 监控 · 评测 · 部署</div>
+    <div class="grid3">
+      <div class="subcard">
+        <h4>缓存 / 记忆</h4>
+        <ul>
+          <li>query→answer 缓存 (<b>330x</b>)</li>
+          <li>记忆巩固: 合并相似 + 过滤陈旧</li>
+          <li>防污染: 仅成功+有引用才写</li>
+        </ul>
+      </div>
+      <div class="subcard">
+        <h4>共进化闭环 (自改进)</h4>
+        <ul>
+          <li>轨迹 metrics → watch 每日扫描</li>
+          <li>自动提案 → 对称 A/B evaluate</li>
+          <li>元层 EMA 学习 → 通过才 apply</li>
+        </ul>
+      </div>
+      <div class="subcard">
+        <h4>评测 / 部署</h4>
+        <ul>
+          <li><b>136</b> tests · CI Gate (ruff→pytest)</li>
+          <li>对抗性验证 · 引用覆盖率评测</li>
+          <li>launchd 5 服务自愈 · $0/月</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="foot">设计取舍: 自研编排 (非 LangGraph) — 机制/策略解耦, 小规模不引重框架 · 每客户独立 DuckDB — 数据隔离 = 检索质量 + 数据安全 · <b>面试讲述版 → docs/qa-harness-mindmap.md</b></div>
+
+</body>
+</html>
