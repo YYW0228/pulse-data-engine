@@ -45,7 +45,7 @@ def _active_db() -> Path:
 
 # ── Context Compiler 参数 ────────────────────────────────────────────
 SIM_THRESHOLD = 0.55      # 低于此相似度的块不进 context
-MAX_CONTEXT_CHARS = 6000  # context 总长度预算
+MAX_CONTEXT_CHARS = 8000  # context 总长度预算 (A/B 通过 2026-08-10)
 LARGE_CHUNK_CHARS = 4000  # 单块超过此长度 → 转存文件 (reactive_compaction)
 HANDOFF_THRESHOLD = 8     # history 超过 8 轮 → 生成交接摘要 (T6, buzz 模式)
 DUMP_DIR = Path(__file__).resolve().parent.parent / "data" / "context_dumps"

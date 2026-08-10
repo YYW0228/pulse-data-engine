@@ -311,10 +311,10 @@ def cmd_apply(args) -> int:
 
     qa_text = QA_SRC.read_text()
     for k, v in prop["params"].items():
-        # 精确替换 "KEY = 旧值" → "KEY = 新值" (保留注释)
+        # 精确替换 "KEY = 旧值" → "KEY = 新值" (保留行内注释与对齐空格)
         import re
         pattern = re.compile(rf"^{k}\s*=\s*[^\n#]+", re.M)
-        new_text, n = pattern.subn(f"{k} = {v}", qa_text, count=1)
+        new_text, n = pattern.subn(f"{k} = {v} ", qa_text, count=1)
         if n == 0:
             print(f"⚠️ 未找到参数 {k} 的赋值行, 跳过")
             continue
