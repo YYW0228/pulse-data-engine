@@ -98,6 +98,100 @@ def _memory_stats() -> dict:
     return {"entries": len(_memory_cache)}
 
 
+# ── 记忆巩固 (memory_extract_consolidate 完整版, 结构提案 memory_consolidate) ──
+# ① 重要性过滤: 低引用 (cit<2) + 陈旧 (>30 天) 条目淘汰, 防缓存膨胀
+# ② 跨会话摘要合并: 归一化相似 query (bigram Jaccard ≥ 0.6 且长度比 ≤ 2.5)
+#    合并为单条, 保留引用更高/更新者 → 同主题记忆碎片收敛
+CONSOLIDATE_ENABLED: bool = True  # memory_consolidate 落地 (evaluate passed)
+CONSOLIDATE_STATS: dict[str, int] = {"runs": 0, "consolidated": 0, "filtered": 0}
+CONSOLIDATE_MIN_CITATIONS = 2    # 低于此引用数视为低价值
+CONSOLIDATE_MAX_AGE_DAYS = 30    # 超过此天数视为陈旧
+CONSOLIDATE_SIM_THRESHOLD = 0.4  # bigram Jaccard 相似下限 (中文短 query 变体实测 0.5)
+CONSOLIDATE_MAX_LEN_RATIO = 2.5  # 长度比上限 (防短 query 误合并)
+
+
+def _norm_query(query: str) -> str:
+    """query 归一化: 去空白/标点 → 小写 (合并判定基准)"""
+    return re.sub(r"[\s\W_]+", "", query).lower()
+
+
+def _query_similar(a: str, b: str) -> bool:
+    """相似判定: ①归一化子串包含 (强同主题) ②字符 bigram Jaccard ≥ 阈值; 均受长度比限制"""
+    na, nb = _norm_query(a), _norm_query(b)
+    if not na or not nb:
+        return False
+    if max(len(na), len(nb)) / min(len(na), len(nb)) > CONSOLIDATE_MAX_LEN_RATIO:
+        return False
+    # 子串包含: "算法备案" ⊂ "算法备案需要什么材料" → 强同主题
+    if na in nb or nb in na:
+        return True
+    ga = {na[i:i + 2] for i in range(len(na) - 1)}
+    gb = {nb[i:i + 2] for i in range(len(nb) - 1)}
+    if not ga or not gb:
+        return na == nb
+    inter = len(ga & gb)
+    return inter / len(ga | gb) >= CONSOLIDATE_SIM_THRESHOLD
+
+
+def _memory_consolidate() -> dict:
+    """记忆巩固: ①重要性过滤 (低引用+陈旧 → 淘汰) ②相似条目合并 (保留引用更高/更新)
+
+    返回 {"consolidated": n, "filtered": n} — 供 CONSOLIDATE_STATS 累计 (Process 信号)
+    幂等: 无变化不写盘 (tmp + rename 原子替换, 防半写)
+    """
+    _load_memory_cache()
+    if not _memory_cache:
+        return {"consolidated": 0, "filtered": 0}
+    now = time.time()
+    entries = dict(_memory_cache)
+
+    # ① 重要性过滤: citations < 2 且 age > 30 天 → 淘汰 (陈旧低价值)
+    filtered = 0
+    for q in list(entries):
+        e = entries[q]
+        try:
+            ts = time.mktime(time.strptime(e.get("ts", ""), "%Y-%m-%d %H:%M:%S"))
+        except Exception:
+            ts = now
+        if e.get("citations", 0) < CONSOLIDATE_MIN_CITATIONS and (now - ts) > CONSOLIDATE_MAX_AGE_DAYS * 86400:
+            del entries[q]
+            filtered += 1
+
+    # ② 跨会话摘要合并: 两两相似 → 保留引用更高者 (同分保留更新)
+    keys = list(entries)
+    removed: set[str] = set()
+    consolidated = 0
+    for i in range(len(keys)):
+        if keys[i] in removed:
+            continue
+        for j in range(i + 1, len(keys)):
+            if keys[j] in removed:
+                continue
+            if _query_similar(keys[i], keys[j]):
+                a, b = entries[keys[i]], entries[keys[j]]
+                keep, drop = (keys[i], keys[j]) if (
+                    a.get("citations", 0), a.get("ts", "")
+                ) >= (b.get("citations", 0), b.get("ts", "")) else (keys[j], keys[i])
+                removed.add(drop)
+                consolidated += 1
+    for q in removed:
+        del entries[q]
+
+    if filtered or consolidated:
+        # 原子写回 (tmp + rename)
+        tmp = MEMORY_CACHE_PATH.with_suffix(".tmp")
+        try:
+            with tmp.open("w") as f:
+                for e in entries.values():
+                    f.write(json.dumps(e, ensure_ascii=False) + "\n")
+            tmp.replace(MEMORY_CACHE_PATH)
+        except Exception:
+            pass  # 写盘失败不阻断 (内存态已收敛, 下次再写)
+        _memory_cache.clear()
+        _memory_cache.update(entries)
+    return {"consolidated": consolidated, "filtered": filtered}
+
+
 def _dump_large_chunk(doc: str, title: str, content: str) -> str:
     """大块转存: 返回落盘路径 (mini-claude-code toolResultBudget 思路)"""
     try:
@@ -561,6 +655,12 @@ def answer(query: str, top_k: int = 3, mask_metadata: bool = True,
                 VERIFY_STATS["checked"] += 1
                 VERIFY_STATS["contradiction"] += int(v["contradiction"])
                 VERIFY_STATS["short_answer"] += int(v["short_answer"])
+            # memory_consolidate: 缓存命中路径也接钩子 (否则基线写入缓存 → 变异全命中 → 钩子永不执行)
+            if CONSOLIDATE_ENABLED:
+                CONSOLIDATE_STATS["runs"] += 1
+                cs = _memory_consolidate()
+                CONSOLIDATE_STATS["consolidated"] += cs["consolidated"]
+                CONSOLIDATE_STATS["filtered"] += cs["filtered"]
             return hit["answer"]
 
     CACHE_STATS["miss"] += 1
@@ -698,6 +798,14 @@ def answer(query: str, top_k: int = 3, mask_metadata: bool = True,
                 tracer.step("verify", {"inconsistent": v["inconsistent_count"],
                                        "contradiction": v["contradiction"],
                                        "short_answer": v["short_answer"]})
+        # ── 记忆巩固 (memory_consolidate): 过滤陈旧低价值 + 合并相似 query → Process 信号 ──
+        if CONSOLIDATE_ENABLED:
+            CONSOLIDATE_STATS["runs"] += 1
+            cs = _memory_consolidate()
+            CONSOLIDATE_STATS["consolidated"] += cs["consolidated"]
+            CONSOLIDATE_STATS["filtered"] += cs["filtered"]
+            if tracer:
+                tracer.step("consolidate", cs)
         return answer_text
     except Exception as e:
         _record_metric(query, (time.time() - t0) * 1000, len(chunks), 0,

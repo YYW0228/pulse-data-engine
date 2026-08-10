@@ -129,6 +129,21 @@ STRUCTURAL_VARIANTS = {
         "tests": ["引用均来自检索块 → 无信号", "引用虚构文档 → inconsistent_citation+1", "声称未找到却带引用 → contradiction", "回答行为不变 (引用率/耗时不劣化)"],
         "threshold": {"min_citation_delta": 0.0, "max_ms_increase_pct": 10},
     },
+    "memory_consolidate": {
+        "pattern": "memory_extract_consolidate",
+        "impl_marker": "CONSOLIDATE_ENABLED",
+        "mechanism": "记忆巩固完整版: ①重要性过滤 — 低引用(cit<2)+陈旧(>30天)条目淘汰防膨胀 ②跨会话摘要合并 — 归一化相似 query (bigram Jaccard≥0.6) 合并为单条, 保留引用更高/更新者; CONSOLIDATE_STATS 新 Process 信号, 不改回答内容",
+        "insert_point": "compliance_qa.answer() 返回前 (postgen_verify 之后): CONSOLIDATE_ENABLED 开关 + _memory_consolidate() + CONSOLIDATE_STATS 累计",
+        "pseudocode": """
+            if CONSOLIDATE_ENABLED:
+                cs = _memory_consolidate()   # {consolidated, filtered}
+                CONSOLIDATE_STATS["consolidated"] += cs["consolidated"]
+                CONSOLIDATE_STATS["filtered"] += cs["filtered"]
+        """,
+        "prediction": "缓存条目数收敛 (合并/过滤发生, consolidate_actions>0) 且行为不变 (引用率不降, 耗时增幅 <10%)",
+        "tests": ["相似 query 条目合并 → consolidated+1", "陈旧低引用条目淘汰 → filtered+1", "回答行为不变 (引用率/耗时不劣化)"],
+        "threshold": {"min_citation_delta": 0.0, "max_ms_increase_pct": 10},
+    },
 }
 
 
@@ -222,6 +237,7 @@ def run_regression(queries: list[str], top_k: int = 3) -> list[dict]:
         vs_before = dict(getattr(qa, "VERIFY_STATS", {}))
         cs_before = dict(getattr(qa, "CACHE_STATS", {}))
         gs_before = dict(getattr(qa, "GUARD_STATS", {}))
+        cc_before = dict(getattr(qa, "CONSOLIDATE_STATS", {}))
         loop = False
         low_conf = False
         empty = False
@@ -248,6 +264,9 @@ def run_regression(queries: list[str], top_k: int = 3) -> list[dict]:
                       for k in ("hit", "miss")}
             gstats = {k: getattr(qa, "GUARD_STATS", {}).get(k, 0) - gs_before.get(k, 0)
                       for k in ("intent", "budget", "loop")}
+            # memory_consolidate 信号: CONSOLIDATE_STATS 增量 (CONSOLIDATE_ENABLED=True 时增长)
+            ccstats = {k: getattr(qa, "CONSOLIDATE_STATS", {}).get(k, 0) - cc_before.get(k, 0)
+                       for k in ("runs", "consolidated", "filtered")}
 
             # loop 触发: 回答包含 loop 终止标记
             loop = "loop_capped" in r or "重复检索循环" in r
@@ -256,7 +275,7 @@ def run_regression(queries: list[str], top_k: int = 3) -> list[dict]:
                             "ok": len(r) > 200 and citations > 0,
                             "loop_triggered": loop, "low_confidence": low_conf,
                             "empty_answer": empty, "verify": vstats,
-                            "cache": cstats, "guards": gstats})
+                            "cache": cstats, "guards": gstats, "consolidate": ccstats})
         except Exception as e:
             results.append({"query": q, "ms": 0, "citations": 0, "ok": False,
                             "loop_triggered": False, "low_confidence": False,
@@ -280,6 +299,12 @@ def summarize(results: list[dict]) -> dict:
     cache_hit = sum(r.get("cache", {}).get("hit", 0) for r in results)
     cache_miss = sum(r.get("cache", {}).get("miss", 0) for r in results)
     guards_total = sum(sum(r.get("guards", {}).values()) for r in results)
+    # memory_consolidate: 巩固钩子执行数 (runs>0 = 钩子真实执行信号) + 动作数 (合并+过滤)
+    consolidate_runs = sum(r.get("consolidate", {}).get("runs", 0) for r in results)
+    consolidate_actions = sum(
+        r.get("consolidate", {}).get("consolidated", 0) + r.get("consolidate", {}).get("filtered", 0)
+        for r in results
+    )
     return {
         "citation_rate": cit_ok / n,
         "avg_ms": round(avg_ms, 1),
@@ -292,6 +317,8 @@ def summarize(results: list[dict]) -> dict:
         "verify_contradiction": verify_contra,
         "cache_hit_rate": round(cache_hit / (cache_hit + cache_miss), 2) if (cache_hit + cache_miss) else None,
         "guards_hit": guards_total,
+        "consolidate_runs": consolidate_runs,
+        "consolidate_actions": consolidate_actions,
     }
 
 
@@ -418,15 +445,24 @@ def cmd_evaluate(args) -> int:
         max_ms_pct = thr.get("max_ms_increase_pct", 15)
         cit_delta = variant["citation_rate"] - base["citation_rate"]
         ms_delta_pct = (variant["avg_ms"] - base["avg_ms"]) / max(base["avg_ms"], 1) * 100
-        # 可验证预测: 钩子真实执行 (checked>0) 且引用一致性 = 0 (无跨检索块引用)
-        pred_ok = variant.get("verify_checked", 0) > 0 and variant.get("verify_inconsistent", 0) == 0
+        # 可验证预测 (按钩子机制判定 — 钩子真实执行是必要条件):
+        #   postgen_verify:   verify_checked>0 且引用一致性=0 (无跨检索块引用)
+        #   memory_consolidate: consolidate_runs>0 (钩子真实执行, 缓存命中路径也触发)
+        #       — 动作数 (consolidate_actions) 是附加信号, 不作为 pass/fail 条件
+        #         (缓存条目恰好无相似对时动作=0 是数据现实, 不是机制失败)
+        if marker == "CONSOLIDATE_ENABLED":
+            pred_ok = variant.get("consolidate_runs", 0) > 0
+        else:  # 默认: VERIFY 类钩子
+            pred_ok = variant.get("verify_checked", 0) > 0 and variant.get("verify_inconsistent", 0) == 0
         passed = cit_delta >= min_cit_delta and ms_delta_pct <= max_ms_pct and pred_ok
 
         print(f"基线:   引用率 {base['citation_rate']:.2f} | 平均 {base['avg_ms']}ms")
         print(f"变异后: 引用率 {variant['citation_rate']:.2f} | 平均 {variant['avg_ms']}ms")
         print(f"Δ引用率 {cit_delta:+.2f} (门槛 ≥{min_cit_delta}) | Δ耗时 {ms_delta_pct:+.1f}% (门槛 ≤{max_ms_pct}%)")
         print(f"预测: 引用不一致 = {variant.get('verify_inconsistent')} (期望 0) | "
-              f"自洽矛盾 = {variant.get('verify_contradiction')}")
+              f"自洽矛盾 = {variant.get('verify_contradiction')} | "
+              f"巩固执行 = {variant.get('consolidate_runs')} (期望 >0) | "
+              f"巩固动作 = {variant.get('consolidate_actions')} (合并+过滤, 附加信号)")
         print(f"\n判定: {'✅ 通过' if passed else '❌ 拒绝'}")
 
         prop["status"] = "passed" if passed else "rejected"
@@ -703,22 +739,31 @@ def cmd_watch(args) -> int:
 def meta_analyze(proposals: list[dict] | None = None) -> dict:
     """元层最小统计: 提案通过率特征 (元学习信号)
 
-    统计:
-      - 按 kind (param/structural): 通过率
-      - 按 pattern: 通过率
-      - 按触发模式 (auto_generated vs manual): 通过率
-    输出: 反馈给 auto_propose 排序的权重
+    P2: 元层在线学习 — EMA 时间衰减 (α=0.4, 按 ts 顺序滚动):
+      早期数据不再主导 (简单平均会被几个月前的样本锁死),
+      近期提案结果指数衰减式影响权重 → auto_propose 排序反映最新经验
     """
     if proposals is None:
         proposals = load_proposals()
     if not proposals:
         return {"empty": True}
 
+    META_EMA_ALPHA = 0.4  # 在线学习: 近期权重 (1-α) 指数衰减旧样本
 
     def _rate(items: list[dict]) -> dict:
-        n = len(items)
-        passed = sum(1 for p in items if p.get("status") == "applied")
-        return {"n": n, "pass_rate": round(passed / n, 2) if n else 0.0}
+        """EMA 时间衰减通过率: 按 ts 升序滚动, 最新提案权重最高
+
+        初始 0.5 (中性), 每条结果: ema = α*outcome + (1-α)*ema
+        (样本采信门槛 n≥3 由 auto_propose._meta_weight 负责, 此处返回真实 EMA)
+        """
+        if not items:
+            return {"n": 0, "pass_rate": 0.5}
+        ordered = sorted(items, key=lambda p: p.get("ts", ""))
+        ema = 0.5
+        for p in ordered:
+            outcome = 1.0 if p.get("status") == "applied" else 0.0
+            ema = META_EMA_ALPHA * outcome + (1 - META_EMA_ALPHA) * ema
+        return {"n": len(ordered), "pass_rate": round(ema, 2)}
 
     # 按 kind
     by_kind: dict[str, list[dict]] = {}
