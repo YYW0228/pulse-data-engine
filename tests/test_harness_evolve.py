@@ -120,3 +120,59 @@ def test_apply_requires_passed(tmp_path, monkeypatch):
     rc = he.cmd_apply(type("A", (), {"proposal": "bad"})())
     assert rc == 1  # 拒绝落地
     assert "MMR_LAMBDA = 0.7" in (tmp_path / "qa.py").read_text()  # 未修改
+
+
+def test_detect_failure_patterns():
+    """轨迹主动扫描: 低引用/高耗时/重复失败 模式识别"""
+    from scripts import harness_evolve as he
+
+    metrics = [
+        # 低引用 (知识缺口) ×3
+        {"query": "Q1", "citations": 0, "success": True, "error": None, "ms": 100},
+        {"query": "Q1", "citations": 0, "success": True, "error": None, "ms": 100},
+        {"query": "Q1", "citations": 0, "success": True, "error": None, "ms": 100},
+        # 高耗时
+        {"query": "Q2", "citations": 2, "success": True, "error": None, "ms": 12000},
+        {"query": "Q2", "citations": 2, "success": True, "error": None, "ms": 15000},
+        {"query": "Q2", "citations": 2, "success": True, "error": None, "ms": 9000},
+        # 重复失败
+        {"query": "Q3", "citations": 0, "success": False, "error": "boom", "ms": 100},
+        {"query": "Q3", "citations": 0, "success": False, "error": "boom", "ms": 100},
+        # meta 类不算
+        {"query": "Q4", "citations": 0, "success": True, "error": "intent:meta", "ms": 1},
+    ]
+    patterns = he.detect_failure_patterns(metrics, min_samples=2)
+    kinds = {p["pattern"] for p in patterns}
+    assert "low_citation" in kinds
+    assert "slow_query" in kinds
+    assert "repeated_fail" in kinds
+    for p in patterns:
+        assert p["score"] > 0
+        assert p["evidence"]
+
+
+def test_auto_propose_dedup(tmp_path, monkeypatch):
+    """自动提案: 失败模式 → PARAM_VARIANTS 映射 + 去重"""
+    from scripts import harness_evolve as he
+
+    (tmp_path / "data").mkdir(exist_ok=True)
+    prop_file = tmp_path / "data" / "harness_proposals.jsonl"
+    monkeypatch.setattr(he, "PROPOSALS", prop_file)
+
+    # 构造触发 low_citation 的轨迹 (3 次零引用)
+    metrics = [
+        {"query": "知识缺口问题", "citations": 0, "success": True, "error": None, "ms": 100},
+        {"query": "知识缺口问题", "citations": 0, "success": True, "error": None, "ms": 100},
+        {"query": "知识缺口问题", "citations": 0, "success": True, "error": None, "ms": 100},
+    ]
+    created = he.auto_propose(metrics=metrics, top_k=3)
+    assert len(created) > 0
+    assert all(c["auto_generated"] for c in created)
+    assert all(c["status"] == "proposed" for c in created)
+    # low_citation → context_budget_up / sim_threshold_strict
+    ids = {c["id"] for c in created}
+    assert "context_budget_up" in ids or "sim_threshold_strict" in ids
+
+    # 第二轮: 去重 (不重复生成)
+    created2 = he.auto_propose(metrics=metrics, top_k=3)
+    assert len(created2) == 0

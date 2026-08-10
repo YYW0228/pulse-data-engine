@@ -73,6 +73,14 @@ PARAM_VARIANTS = {
         "tests": ["大文档回答仍带引用", "平均 token_in 下降"],
         "threshold": {"min_citation_delta": 0.0, "max_ms_increase_pct": 10},
     },
+    "parallel_retrieve": {
+        "pattern": "sandbox_worker_pool",
+        "params": {"USE_PARALLEL": True},
+        "rationale": "并行检索开关: 复杂/双库查询走进程隔离子任务 (优先级 B 成果, 1.54x 加速)",
+        "diff": "compliance_qa.py  USE_PARALLEL = False → True",
+        "tests": ["复杂查询引用覆盖提升", "简单查询保持薄路径", "并行失败降级串行"],
+        "threshold": {"min_citation_delta": 0.0, "max_ms_increase_pct": 30},
+    },
 }
 
 
@@ -204,7 +212,11 @@ def cmd_propose(args) -> int:
 
     print(f"\n实验目录: {len(PARAM_VARIANTS)} 个参数变异")
     created = 0
+    existing_ids = {p.get("id") for p in load_proposals()}
     for pid, variant in PARAM_VARIANTS.items():
+        if pid in existing_ids:
+            print(f"  = [{pid}] 已存在, 跳过 (去重)")
+            continue
         proposal = {
             "id": pid,
             "ts": time.strftime("%Y-%m-%d %H:%M:%S"),
@@ -331,6 +343,133 @@ def cmd_apply(args) -> int:
     return 0
 
 
+def detect_failure_patterns(metrics: list[dict], min_samples: int = 3) -> list[dict]:
+    """主动扫描轨迹 → 失败/低效模式 (优先级 C)
+
+    模式:
+      1. low_citation: 引用率 0 的 fact 查询 (知识缺口)
+      2. slow_query: 耗时 > 8000ms (性能问题)
+      3. repeated_fail: 同一 query 多次失败 (系统性缺陷)
+    输出: [{pattern, query, score, evidence}]
+    """
+    from collections import Counter
+
+    patterns: list[dict] = []
+    q_counter = Counter(r.get("query", "") for r in metrics if r.get("query"))
+
+    # 1. 低引用 (知识缺口)
+    low_cit = [r for r in metrics
+               if r.get("query") and r.get("citations", 0) == 0
+               and r.get("error") not in ("intent:meta", "intent:attack", "intent:probe", "intent:creative")
+               and r.get("success")]
+    if len(low_cit) >= min_samples:
+        by_q: dict[str, int] = {}
+        for r in low_cit:
+            by_q[r["query"]] = by_q.get(r["query"], 0) + 1
+        top = sorted(by_q.items(), key=lambda x: -x[1])[0]
+        patterns.append({
+            "pattern": "low_citation", "query": top[0], "count": top[1],
+            "score": min(top[1] * 5, 30), "evidence": f"{top[1]} 次零引用 (知识缺口候选)",
+        })
+
+    # 2. 高耗时
+    slow = [r for r in metrics if r.get("query") and (r.get("ms") or 0) > 8000]
+    if len(slow) >= min_samples:
+        avg = sum(r.get("ms", 0) for r in slow) / len(slow)
+        patterns.append({
+            "pattern": "slow_query", "query": slow[0].get("query", ""), "count": len(slow),
+            "score": 20, "evidence": f"{len(slow)} 次 >8s, 平均 {avg:.0f}ms (性能候选)",
+        })
+
+    # 3. 重复失败 (只取真实有失败的重复 query)
+    repeated = [(q, c) for q, c in q_counter.items() if c >= 2 and q]
+    for q, c in repeated:
+        fails = [r for r in metrics if r.get("query") == q and not r.get("success")]
+        if len(fails) >= 2:
+            patterns.append({
+                "pattern": "repeated_fail", "query": q, "count": c,
+                "score": 25, "evidence": f"{q[:30]}... {len(fails)} 次失败 (系统性缺陷候选)",
+            })
+            break  # 只取第一个系统性缺陷
+
+    return patterns
+
+
+def auto_propose(metrics: list[dict] | None = None, top_k: int = 3) -> list[dict]:
+    """自动生成提案 (优先级 C): 失败模式 → PARAM_VARIANTS 映射
+
+    规则:
+      - low_citation → sim_threshold_strict (更严阈值 → 更精准) 或 context_budget_up
+      - slow_query → parallel_retrieve (并行提速) 或 large_chunk_earlier
+      - repeated_fail → mmr_balance (改检索质量)
+    """
+    if metrics is None:
+        metrics = load_metrics()
+    patterns = detect_failure_patterns(metrics)
+
+    mapping = {
+        "low_citation": ["context_budget_up", "sim_threshold_strict"],
+        "slow_query": ["parallel_retrieve", "large_chunk_earlier"],
+        "repeated_fail": ["mmr_balance"],
+    }
+    created: list[dict] = []
+    for p in patterns:
+        for pid in mapping.get(p["pattern"], []):
+            if pid not in PARAM_VARIANTS:
+                continue
+            variant = PARAM_VARIANTS[pid]
+            # 查是否已有同 id 提案
+            existing = [x for x in load_proposals() if x["id"] == pid]
+            if existing:
+                continue  # 已提案过, 不重复
+            proposal = {
+                "id": pid,
+                "ts": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "auto_generated": True,
+                "trigger": f"{p['pattern']}: {p['evidence']}",
+                "pattern": variant["pattern"],
+                "params": variant["params"],
+                "rationale": variant["rationale"],
+                "diff": variant["diff"],
+                "tests": variant["tests"],
+                "threshold": variant["threshold"],
+                "regression_set": [x["query"] for x in worst_questions(top_k)],
+                "status": "proposed",
+            }
+            with PROPOSALS.open("a") as f:
+                f.write(json.dumps(proposal, ensure_ascii=False) + "\n")
+            created.append(proposal)
+    return created
+
+
+def cmd_watch(args) -> int:
+    """主动驱动 (优先级 C): 扫描轨迹 → 自动提案 → 可选自动 evaluate"""
+    rows = load_metrics()
+    patterns = detect_failure_patterns(rows)
+    print(f"=== 轨迹主动扫描 (共 {len(rows)} 条) ===")
+    for p in patterns:
+        print(f"  [{p['pattern']}] score={p['score']} {p['evidence']}")
+
+    if not patterns:
+        print("\n无失败模式 — harness 状态健康")
+        return 0
+
+    created = auto_propose(rows)
+    print(f"\n→ 自动生成 {len(created)} 个提案:")
+    for c in created:
+        print(f"  + [{c['id']}] 触发: {c['trigger']}")
+
+    if args.eval and created:
+        print("\n→ 自动评估:")
+        for c in created:
+            print(f"  = evaluate {c['id']} ...")
+        # 调用 evaluate 逻辑 (半自动: 只评估不落地)
+        from scripts.harness_evolve import cmd_evaluate
+        for c in created:
+            cmd_evaluate(type("A", (), {"proposal": c["id"], "n": args.n, "top_k": 3})())
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="harness_evolve")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -343,6 +482,9 @@ def main(argv: list[str] | None = None) -> int:
     p_eval.add_argument("--top-k", type=int, default=3)
     p_apply = sub.add_parser("apply", help="落地已通过提案")
     p_apply.add_argument("--proposal", required=True, help="提案 id")
+    p_watch = sub.add_parser("watch", help="轨迹主动扫描 → 自动提案")
+    p_watch.add_argument("--eval", action="store_true", help="自动评估新提案")
+    p_watch.add_argument("-n", type=int, default=5)
     args = parser.parse_args(argv)
     if args.cmd == "scan":
         return cmd_scan(args)
@@ -352,6 +494,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_evaluate(args)
     if args.cmd == "apply":
         return cmd_apply(args)
+    if args.cmd == "watch":
+        return cmd_watch(args)
     return 1
 
 

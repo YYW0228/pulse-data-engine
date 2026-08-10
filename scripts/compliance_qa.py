@@ -62,6 +62,7 @@ def _dump_large_chunk(doc: str, title: str, content: str) -> str:
     except Exception:
         return "context_dumps/"
 MMR_LAMBDA = 0.8          # MMR 多样性权重 (0.8 = 更贴题, A/B 通过 2026-08-10)
+USE_PARALLEL = False       # 并行检索开关 (优先级 B: 复杂查询走进程隔离子任务; A/B 提案目标)
 
 # ── Embedding 模型缓存 (全局单例) ────────────────────────────────────
 _model = None
@@ -168,8 +169,26 @@ def compile_context(query: str, top_k: int = 3, mask_metadata: bool = False) -> 
     model = get_model()
     qvec = model.encode(query, normalize_embeddings=True)
 
-    # 1. 检索候选
-    candidates = retrieve(query, top_k=top_k)
+    # 0. 并行检索路径 (优先级 B, A/B 开关): 复杂查询/双库 → 进程隔离并行
+    #    并行只换检索源, 后续 MMR/裁剪/屏蔽走同一管线 (保持行为一致)
+    parallel_chunks: list[dict] | None = None
+    if USE_PARALLEL:
+        try:
+            from scripts.parallel import parallel_retrieve, should_parallel
+
+            customer_db = str(_active_db()) if _CUSTOMER_DB else None
+            if should_parallel(query, customer_db):
+                handoff = parallel_retrieve(query, top_k=top_k, customer_db=customer_db)
+                if handoff.get("chunks"):
+                    parallel_chunks = handoff["chunks"]
+        except Exception:
+            parallel_chunks = None  # 并行失败 → 静默回退串行 (降级安全)
+
+    # 1. 检索候选 (并行分支用并行结果, 否则串行)
+    if parallel_chunks:
+        candidates = parallel_chunks
+    else:
+        candidates = retrieve(query, top_k=top_k)
 
     # 2. 相似度阈值过滤
     filtered = [c for c in candidates if c["hits"] >= SIM_THRESHOLD]
