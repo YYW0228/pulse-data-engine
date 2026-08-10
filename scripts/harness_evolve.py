@@ -383,16 +383,20 @@ def cmd_evaluate(args) -> int:
 
         # 已实现 → 对称 A/B: 基线 (机制关) 与变异 (机制开) 同条件重跑
         # (不复用旧基线: 缓存状态/LLM 耗时不对称会污染 Δ耗时判定 — 实测假拒绝)
+        # 注意: apply 后开关生产默认 True, 基线跑必须显式关闭
         print(f"✅ 实现已就位 (marker: {marker}) → 对称 A/B (基线 + 变异)")
-        base_results = run_regression(queries, top_k=args.top_k)
-        base = summarize(base_results)
         saved = getattr(qa, marker, False)
-        setattr(qa, marker, True)
+        setattr(qa, marker, False)  # 基线: 机制关闭
+        try:
+            base_results = run_regression(queries, top_k=args.top_k)
+            base = summarize(base_results)
+        finally:
+            setattr(qa, marker, True)  # 变异: 机制开启
         try:
             qa.answer("什么是算法备案", top_k=1)  # 预热 (消除冷启动偏差)
             variant_results = run_regression(queries, top_k=args.top_k)
         finally:
-            setattr(qa, marker, saved)
+            setattr(qa, marker, saved)  # 恢复生产默认
         variant = summarize(variant_results)
 
         thr = prop.get("threshold", {})
