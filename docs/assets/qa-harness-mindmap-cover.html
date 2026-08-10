@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>AI 合规问答 Harness — 思维导图封面</title>
+<style>
+  :root {
+    --accent: #C6F24E; --accent2: #4DD0E1; --accent3: #FF8A65;
+    --text: #E8ECF4; --dim: #8A93A8;
+    --card: rgba(255,255,255,0.045); --border: rgba(255,255,255,0.10);
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { width:1280px; height:720px; overflow:hidden; }
+  body {
+    font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+    background:
+      radial-gradient(900px 480px at 50% -12%, #16203A 0%, #0A0E1A 60%),
+      radial-gradient(700px 400px at 85% 110%, rgba(77,208,225,0.08), transparent 60%),
+      #0A0E1A;
+    color:var(--text); position:relative;
+  }
+  /* ── 顶部: 标题 + GitHub + 亮点 ── */
+  .top { position:absolute; top:22px; left:0; right:0; text-align:center; z-index:5; }
+  .proj {
+    font-size:26px; font-weight:800; letter-spacing:1px;
+    background:linear-gradient(90deg,var(--accent),var(--accent2));
+    -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent;
+  }
+  .git { color:var(--dim); font-size:11px; margin-top:5px; }
+  .git b { color:var(--accent2); font-weight:600; }
+  .tagline {
+    display:inline-block; margin-top:8px; padding:5px 16px; border-radius:999px;
+    border:1px solid rgba(198,242,78,0.3); background:rgba(198,242,78,0.07);
+    color:var(--accent); font-size:12px; font-weight:500;
+  }
+  /* ── 中心节点 ── */
+  .core {
+    position:absolute; left:50%; top:390px; transform:translate(-50%,-50%); z-index:4;
+    width:188px; height:188px; border-radius:50%;
+    background:radial-gradient(circle at 35% 30%, rgba(198,242,78,0.20), rgba(10,14,26,0.9) 70%);
+    border:2px solid var(--accent);
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    text-align:center; box-shadow:0 0 42px rgba(198,242,78,0.22);
+  }
+  .core .cn { font-size:16px; font-weight:800; color:var(--accent); line-height:1.4; }
+  .core .en { font-size:9px; color:var(--dim); margin-top:4px; letter-spacing:1px; }
+  .core .sub { font-size:10px; color:var(--text); margin-top:6px; opacity:0.85; }
+  /* ── SVG 连线 ── */
+  svg.lines { position:absolute; inset:0; z-index:1; }
+  /* ── 分支卡片 ── */
+  .branch { position:absolute; z-index:3; width:250px; }
+  .branch.left  { text-align:right; }
+  .branch.right { text-align:left; }
+  .branch .head {
+    display:inline-block; padding:7px 14px; border-radius:9px;
+    font-size:13px; font-weight:700;
+    background:var(--card); border:1px solid var(--border);
+  }
+  .branch.left .head  { border-right:3px solid var(--bc, var(--accent)); }
+  .branch.right .head { border-left:3px solid var(--bc, var(--accent)); }
+  .branch .head .en { display:block; font-size:9px; color:var(--dim); font-weight:500; margin-top:2px; }
+  .branch ul { list-style:none; margin-top:8px; font-size:11px; color:var(--dim); line-height:1.85; }
+  .branch.left ul  { padding-right:2px; }
+  .branch.right ul { padding-left:2px; }
+  .branch li b { color:var(--text); font-weight:600; }
+  .branch li::marker { content:""; }
+  /* 分支位置 (y 三等分, 左右两翼) */
+  .b1 { top:240px; left:52px;  --bc:var(--accent); }
+  .b2 { top:402px; left:52px;  --bc:var(--accent2); }
+  .b3 { top:564px; left:52px;  --bc:var(--accent3); }
+  .b4 { top:240px; right:52px; --bc:var(--accent2); }
+  .b5 { top:402px; right:52px; --bc:var(--accent3); }
+  .b6 { top:564px; right:52px; --bc:var(--accent); }
+  /* ── 底部亮点条 ── */
+  .foot {
+    position:absolute; bottom:0; left:0; right:0; z-index:5;
+    display:flex; justify-content:center; gap:26px; padding:12px 0 14px;
+    background:linear-gradient(transparent, rgba(10,14,26,0.95) 40%);
+  }
+  .hl { font-size:11.5px; color:var(--dim); }
+  .hl b { color:var(--accent); font-weight:700; }
+</style>
+</head>
+<body>
+
+<!-- 顶部 -->
+<div class="top">
+  <div class="proj">AI 合规问答 Harness</div>
+  <div class="git">github.com/YYW0228/pulse-data-engine &nbsp;·&nbsp; <b>Pulse Data Engine</b> &nbsp;·&nbsp; Python / DuckDB / DeepSeek</div>
+  <div class="tagline">⚡ 3 秒出带引用的合规答案 · 每条可回溯法条原文 · 系统自己会进化</div>
+</div>
+
+<!-- 连线 -->
+<svg class="lines" width="1280" height="720" viewBox="0 0 1280 720" fill="none">
+  <!-- 中心 → 左翼 -->
+  <path d="M540 300 Q 380 280 316 280" stroke="#C6F24E" stroke-width="2" stroke-dasharray="6 5" opacity="0.75"/>
+  <path d="M540 390 Q 380 402 316 402" stroke="#4DD0E1" stroke-width="2" stroke-dasharray="6 5" opacity="0.75"/>
+  <path d="M540 480 Q 380 564 316 564" stroke="#FF8A65" stroke-width="2" stroke-dasharray="6 5" opacity="0.75"/>
+  <!-- 中心 → 右翼 -->
+  <path d="M740 300 Q 900 280 964 280" stroke="#4DD0E1" stroke-width="2" stroke-dasharray="6 5" opacity="0.75"/>
+  <path d="M740 390 Q 900 402 964 402" stroke="#FF8A65" stroke-width="2" stroke-dasharray="6 5" opacity="0.75"/>
+  <path d="M740 480 Q 900 564 964 564" stroke="#C6F24E" stroke-width="2" stroke-dasharray="6 5" opacity="0.75"/>
+  <!-- 箭头 (右翼 → 中心, 表示数据流) -->
+  <path d="M316 280 L 300 280" stroke="#C6F24E" stroke-width="2" marker-end="url(#arr)"/>
+  <defs>
+    <marker id="arr" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0 0 L6 3 L0 6 Z" fill="#C6F24E"/>
+    </marker>
+  </defs>
+</svg>
+
+<!-- 中心节点 -->
+<div class="core">
+  <div class="cn">AI 合规问答<br>Harness</div>
+  <div class="en">RAG + AGENT + EVOLUTION</div>
+  <div class="sub">3 秒带引用答案 · 自进化</div>
+</div>
+
+<!-- 左翼 3 分支 -->
+<div class="branch left b1">
+  <span class="head">RAG 检索<span class="en">Retrieval</span></span>
+  <ul>
+    <li><b>DuckDB VSS</b> 向量检索</li>
+    <li><b>bge-small-zh</b> embedding</li>
+    <li>客户库 ↔ 全局库 <b>回退</b></li>
+  </ul>
+</div>
+<div class="branch left b2">
+  <span class="head">Agent 编排<span class="en">Orchestration</span></span>
+  <ul>
+    <li>意图守卫 · 预算 · Loop</li>
+    <li>MMR 重排 + 长度裁剪</li>
+    <li><b>共进化闭环</b> (提案→A/B→apply)</li>
+  </ul>
+</div>
+<div class="branch left b3">
+  <span class="head">记忆管理<span class="en">Memory</span></span>
+  <ul>
+    <li>query→answer 缓存 <b>330x</b></li>
+    <li>记忆巩固 (合并/过滤)</li>
+    <li>防污染: 仅成功+有引用写</li>
+  </ul>
+</div>
+
+<!-- 右翼 3 分支 -->
+<div class="branch right b4">
+  <span class="head">向量库<span class="en">Vector DB</span></span>
+  <ul>
+    <li>HNSW 持久化索引</li>
+    <li>每客户<b>独立库</b>隔离</li>
+    <li>MMR 多样性重排</li>
+  </ul>
+</div>
+<div class="branch right b5">
+  <span class="head">LLM 层<span class="en">Generation</span></span>
+  <ul>
+    <li>DeepSeek <b>双模型路由</b></li>
+    <li>PrefixCache 命中 <b>83%</b></li>
+    <li>postgen_verify 防幻觉</li>
+  </ul>
+</div>
+<div class="branch right b6">
+  <span class="head">部署 / 评测<span class="en">Ops</span></span>
+  <ul>
+    <li>launchd 5 服务自愈</li>
+    <li><b>136</b> tests · CI Gate</li>
+    <li>月运营费 <b>$0</b></li>
+  </ul>
+</div>
+
+<!-- 底部亮点 -->
+<div class="foot">
+  <span class="hl">演示命中 <b>10/10</b></span>
+  <span class="hl">引用率 <b>100%</b></span>
+  <span class="hl">重复查询 <b>330x</b> 加速</span>
+  <span class="hl">共进化 <b>7/10</b> 落地</span>
+  <span class="hl">结构改进 <b>4/4</b></span>
+</div>
+
+</body>
+</html>
