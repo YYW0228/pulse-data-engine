@@ -226,3 +226,30 @@ def test_meta_updates_priority():
         assert he.PROPOSAL_PRIORITY["sandbox_worker_pool"] == 0.7  # 降权
     finally:
         he.PROPOSAL_PRIORITY = orig
+
+
+def test_auto_propose_meta_weight_blocks_low_pass(tmp_path, monkeypatch):
+    """元层接线: pattern 历史通过率 ≤30% (n≥3) → 该 pattern 候选被否决"""
+    from scripts import harness_evolve as he
+
+    (tmp_path / "data").mkdir(exist_ok=True)
+    prop_file = tmp_path / "data" / "harness_proposals.jsonl"
+    monkeypatch.setattr(he, "PROPOSALS", prop_file)
+    # reactive_compaction 3 提案全 rejected → 通过率 0.0 (触发元层否决)
+    for pid in ["x1", "x2", "x3"]:
+        prop_file.open("a").write(json.dumps({
+            "id": pid, "kind": "param", "pattern": "reactive_compaction", "status": "rejected",
+        }) + "\n")
+
+    metrics = [  # low_citation → context_budget_up (reactive_compaction) / sim_threshold_strict
+        {"query": "知识缺口问题", "citations": 0, "success": True, "error": None, "ms": 100},
+        {"query": "知识缺口问题", "citations": 0, "success": True, "error": None, "ms": 100},
+        {"query": "知识缺口问题", "citations": 0, "success": True, "error": None, "ms": 100},
+    ]
+    created = he.auto_propose(metrics=metrics, top_k=3)
+    ids = {c["id"] for c in created}
+    # context_budget_up (reactive_compaction, rate=0.0) 被否决;
+    # sim_threshold_strict (field_level_source_grounding, 无样本) 中性 0.5 保留
+    assert "context_budget_up" not in ids
+    assert "sim_threshold_strict" in ids
+    assert all(c.get("meta_weight", 0) > 0 for c in created)

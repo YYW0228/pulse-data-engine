@@ -509,33 +509,55 @@ def auto_propose(metrics: list[dict] | None = None, top_k: int = 3) -> list[dict
         "slow_query": ["parallel_retrieve", "large_chunk_earlier"],
         "repeated_fail": ["mmr_balance"],
     }
+
+    # ── 元层接线: pattern 历史通过率 → 候选权重 (meta_analyze 实时统计) ──
+    meta = meta_analyze()
+    by_pattern: dict = {} if meta.get("empty") else meta.get("by_pattern", {})
+
+    def _meta_weight(pid: str) -> float:
+        """pattern 通过率 → 权重: ≥0.8 高优先, ≤0.3 跳过, 样本<3 中性 0.5"""
+        pattern = PARAM_VARIANTS[pid]["pattern"]
+        st = by_pattern.get(pattern)
+        if not st or st.get("n", 0) < 3:
+            return 0.5  # 样本不足: 不采信
+        rate = st.get("pass_rate", 0.5)
+        return 0.0 if rate <= 0.3 else rate
+
     created: list[dict] = []
+    candidates: list[tuple[float, str, dict, dict]] = []  # (weight, pid, pattern, variant)
     for p in patterns:
         for pid in mapping.get(p["pattern"], []):
             if pid not in PARAM_VARIANTS:
                 continue
-            variant = PARAM_VARIANTS[pid]
             # 查是否已有同 id 提案
             existing = [x for x in load_proposals() if x["id"] == pid]
             if existing:
                 continue  # 已提案过, 不重复
-            proposal = {
-                "id": pid,
-                "ts": time.strftime("%Y-%m-%d %H:%M:%S"),
-                "auto_generated": True,
-                "trigger": f"{p['pattern']}: {p['evidence']}",
-                "pattern": variant["pattern"],
-                "params": variant["params"],
-                "rationale": variant["rationale"],
-                "diff": variant["diff"],
-                "tests": variant["tests"],
-                "threshold": variant["threshold"],
-                "regression_set": [x["query"] for x in worst_questions(top_k)],
-                "status": "proposed",
-            }
-            with PROPOSALS.open("a") as f:
-                f.write(json.dumps(proposal, ensure_ascii=False) + "\n")
-            created.append(proposal)
+            weight = _meta_weight(pid)
+            if weight <= 0.0:
+                continue  # 元层否决: 该 pattern 历史通过率 ≤30%
+            candidates.append((weight, pid, p, PARAM_VARIANTS[pid]))
+
+    candidates.sort(key=lambda x: -x[0])  # 元层权重降序 → 高通过率模式优先
+    for weight, pid, p, variant in candidates[:top_k]:
+        proposal = {
+            "id": pid,
+            "ts": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "auto_generated": True,
+            "meta_weight": round(weight, 2),  # 元层: pattern 历史通过率
+            "trigger": f"{p['pattern']}: {p['evidence']}",
+            "pattern": variant["pattern"],
+            "params": variant["params"],
+            "rationale": variant["rationale"],
+            "diff": variant["diff"],
+            "tests": variant["tests"],
+            "threshold": variant["threshold"],
+            "regression_set": [x["query"] for x in worst_questions(top_k)],
+            "status": "proposed",
+        }
+        with PROPOSALS.open("a") as f:
+            f.write(json.dumps(proposal, ensure_ascii=False) + "\n")
+        created.append(proposal)
     return created
 
 
@@ -554,7 +576,8 @@ def cmd_watch(args) -> int:
     created = auto_propose(rows)
     print(f"\n→ 自动生成 {len(created)} 个提案:")
     for c in created:
-        print(f"  + [{c['id']}] 触发: {c['trigger']}")
+        w = c.get("meta_weight", "?")
+        print(f"  + [{c['id']}] w={w} 触发: {c['trigger']}")
 
     if args.eval and created:
         print("\n→ 自动评估:")
