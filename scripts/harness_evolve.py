@@ -16,11 +16,9 @@ v2 升级 (相对 v1):
 from __future__ import annotations
 
 import argparse
-import importlib
 import json
 import sys
 import time
-import uuid
 from pathlib import Path
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
@@ -175,7 +173,7 @@ def scan_patterns() -> list[dict]:
                 "category": idx.get("category", ""), "value": idx.get("value", ""),
                 "core_idea": idx.get("core_idea", "")[:80],
             })
-        except Exception:
+        except Exception:  # noqa: S112 — 坏模式文件跳过
             continue
     return result
 
@@ -217,14 +215,6 @@ def run_regression(queries: list[str], top_k: int = 3) -> list[dict]:
                     low_conf = avg_sim < 0.6
             except Exception:
                 pass
-            # 记录 loop 检测器状态变化 (回答前快照)
-            try:
-                from scripts.compliance_qa import _loop_detector
-                before = None
-                if _loop_detector:
-                    before = _loop_detector._hits if hasattr(_loop_detector, "_hits") else 0
-            except Exception:
-                before = None
 
             r = qa.answer(q, top_k=top_k)
             ms = (time.time() - t0) * 1000
@@ -432,7 +422,7 @@ def cmd_apply(args) -> int:
     for k, v in prop["params"].items():
         # 精确替换 "KEY = 旧值" → "KEY = 新值" (保留行内注释与对齐空格)
         import re
-        pattern = re.compile(rf"^{k}\s*=\s*[^\n#]+", re.M)
+        pattern = re.compile(rf"^{k}\s*=\s*[^\n#]+", re.MULTILINE)
         new_text, n = pattern.subn(f"{k} = {v} ", qa_text, count=1)
         if n == 0:
             print(f"⚠️ 未找到参数 {k} 的赋值行, 跳过")
@@ -473,7 +463,7 @@ def detect_failure_patterns(metrics: list[dict], min_samples: int = 3) -> list[d
         by_q: dict[str, int] = {}
         for r in low_cit:
             by_q[r["query"]] = by_q.get(r["query"], 0) + 1
-        top = sorted(by_q.items(), key=lambda x: -x[1])[0]
+        top = max(by_q.items(), key=lambda x: x[1])
         patterns.append({
             "pattern": "low_citation", "query": top[0], "count": top[1],
             "score": min(top[1] * 5, 30), "evidence": f"{top[1]} 次零引用 (知识缺口候选)",
@@ -591,7 +581,6 @@ def meta_analyze(proposals: list[dict] | None = None) -> dict:
     if not proposals:
         return {"empty": True}
 
-    from collections import Counter
 
     def _rate(items: list[dict]) -> dict:
         n = len(items)

@@ -57,7 +57,6 @@ _memory_cache: dict[str, dict] = {}
 
 def _load_memory_cache() -> None:
     """加载记忆缓存 (query → {answer, citations, ts})"""
-    global _memory_cache
     if _memory_cache or not MEMORY_CACHE_PATH.exists():
         return
     for line in MEMORY_CACHE_PATH.read_text().splitlines():
@@ -65,7 +64,7 @@ def _load_memory_cache() -> None:
             import json as _json
             d = _json.loads(line)
             _memory_cache[d["query"]] = d
-        except Exception:
+        except Exception:  # noqa: S112 — 坏行跳过, 不阻断加载
             continue
 
 

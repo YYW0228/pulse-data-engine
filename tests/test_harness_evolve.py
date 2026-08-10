@@ -80,8 +80,9 @@ def test_propose_writes_file(monkeypatch, tmp_path, metrics_file):
 
 def test_apply_params_roundtrip():
     """参数变异应用/恢复 (A/B 引擎核心)"""
-    from scripts import harness_evolve as he
     import types
+
+    from scripts import harness_evolve as he
 
     mod = types.SimpleNamespace(MMR_LAMBDA=0.7, MAX_CONTEXT_CHARS=6000)
     saved = he.apply_params({"MMR_LAMBDA": 0.8}, mod)

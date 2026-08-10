@@ -25,7 +25,6 @@ import json
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Optional
 
 # 跨域/复杂意图关键词 (触发并行路径)
 COMPLEX_HINTS = [
@@ -42,8 +41,9 @@ def is_complex_query(query: str) -> bool:
 
 def _retrieve_global(query: str, top_k: int, db_path: str) -> list[dict]:
     """子任务 1: 全局库检索 (独立连接)"""
-    import duckdb
     from pathlib import Path
+
+    import duckdb
 
     # 复用 compliance_qa 的检索逻辑, 但用独立连接 (隔离)
     from scripts.compliance_qa import get_model
@@ -78,8 +78,9 @@ def _retrieve_global(query: str, top_k: int, db_path: str) -> list[dict]:
 
 def _retrieve_customer(query: str, top_k: int, db_path: str) -> list[dict]:
     """子任务 2: 客户库检索 (独立连接, 隔离)"""
-    import duckdb
     from pathlib import Path
+
+    import duckdb
 
     from scripts.compliance_qa import get_model
 
@@ -168,15 +169,13 @@ def _subprocess_retrieve(kind: str, query: str, top_k: int, db_path: str) -> lis
     return []
 
 
-def parallel_retrieve(query: str, top_k: int = 3, customer_db: Optional[str] = None) -> dict:
+def parallel_retrieve(query: str, top_k: int = 3, customer_db: str | None = None) -> dict:
     """并行检索 (进程隔离): 全局 + 客户(可选) → 合并 handoff
 
     返回结构化 handoff (不返回原始长上下文):
       {chunks, sources, total_ms, per_source}
     """
-    import subprocess
     import sys as _sys
-    from concurrent.futures import ThreadPoolExecutor, as_completed
 
     t0 = time.time()
     tasks: list[tuple[str, object]] = [
@@ -223,7 +222,7 @@ def _global_db() -> str:
     return str(Path(__file__).resolve().parent.parent / "data" / "compliance.duckdb")
 
 
-def should_parallel(query: str, customer_db: Optional[str] = None) -> bool:
+def should_parallel(query: str, customer_db: str | None = None) -> bool:
     """是否走并行路径: 复杂查询 或 客户库激活时"""
     if customer_db:
         return True  # 双库场景总是并行 (全局+客户隔离检索)
