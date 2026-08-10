@@ -265,6 +265,7 @@ def summarize(results: list[dict]) -> dict:
     low_conf = sum(1 for r in results if r.get("low_confidence"))
     empty = sum(1 for r in results if r.get("empty_answer"))
     # postgen_verify 信号 (VERIFY_ENABLED=True 时才有增量)
+    verify_checked = sum(r.get("verify", {}).get("checked", 0) for r in results)
     verify_inc = sum(r.get("verify", {}).get("inconsistent_citation", 0) for r in results)
     verify_contra = sum(r.get("verify", {}).get("contradiction", 0) for r in results)
     return {
@@ -274,6 +275,7 @@ def summarize(results: list[dict]) -> dict:
         "loop_triggered": loop,
         "low_confidence_rate": round(low_conf / n, 2),
         "empty_answer": empty,
+        "verify_checked": verify_checked,
         "verify_inconsistent": verify_inc,
         "verify_contradiction": verify_contra,
     }
@@ -328,6 +330,7 @@ def cmd_propose(args) -> int:
         if is_structural:
             proposal["pseudocode"] = variant.get("pseudocode", "")
             proposal["prediction"] = variant.get("prediction", "")
+            proposal["impl_marker"] = variant.get("impl_marker", "")
         else:
             proposal["params"] = variant["params"]
         with PROPOSALS.open("a") as f:
@@ -378,14 +381,11 @@ def cmd_evaluate(args) -> int:
             print(f"→ 状态: {prop['status']} (实现后重跑 evaluate)")
             return 0
 
-        # 已实现 → 变异对比: 开启机制开关跑回归 vs 基线
-        print(f"✅ 实现已就位 (marker: {marker}) → 基线 + 变异回归")
-        if prop.get("evaluation", {}).get("baseline") is None:
-            # 已实现但无基线: 先跑基线 (机制关闭状态)
-            base_results = run_regression(queries, top_k=args.top_k)
-            base = summarize(base_results)
-        else:
-            base = prop["evaluation"]["baseline"]
+        # 已实现 → 对称 A/B: 基线 (机制关) 与变异 (机制开) 同条件重跑
+        # (不复用旧基线: 缓存状态/LLM 耗时不对称会污染 Δ耗时判定 — 实测假拒绝)
+        print(f"✅ 实现已就位 (marker: {marker}) → 对称 A/B (基线 + 变异)")
+        base_results = run_regression(queries, top_k=args.top_k)
+        base = summarize(base_results)
         saved = getattr(qa, marker, False)
         setattr(qa, marker, True)
         try:
@@ -400,8 +400,8 @@ def cmd_evaluate(args) -> int:
         max_ms_pct = thr.get("max_ms_increase_pct", 15)
         cit_delta = variant["citation_rate"] - base["citation_rate"]
         ms_delta_pct = (variant["avg_ms"] - base["avg_ms"]) / max(base["avg_ms"], 1) * 100
-        # 可验证预测: 引用一致性 = 0 (钩子开启后无跨检索块引用)
-        pred_ok = variant.get("verify_inconsistent", 0) == 0
+        # 可验证预测: 钩子真实执行 (checked>0) 且引用一致性 = 0 (无跨检索块引用)
+        pred_ok = variant.get("verify_checked", 0) > 0 and variant.get("verify_inconsistent", 0) == 0
         passed = cit_delta >= min_cit_delta and ms_delta_pct <= max_ms_pct and pred_ok
 
         print(f"基线:   引用率 {base['citation_rate']:.2f} | 平均 {base['avg_ms']}ms")
@@ -495,7 +495,7 @@ def cmd_apply(args) -> int:
         return 1
 
     qa_text = QA_SRC.read_text()
-    for k, v in prop["params"].items():
+    for k, v in prop.get("params", {}).items():
         # 精确替换 "KEY = 旧值" → "KEY = 新值" (保留行内注释与对齐空格)
         import re
         pattern = re.compile(rf"^{k}\s*=\s*[^\n#]+", re.MULTILINE)
@@ -505,6 +505,19 @@ def cmd_apply(args) -> int:
             continue
         qa_text = new_text
         print(f"  ✅ {k} → {v}")
+
+    # 结构提案落地: impl_marker 开关默认启用 (False → True)
+    marker = prop.get("impl_marker", "")
+    if marker:
+        import re
+        pattern = re.compile(rf"^{marker}\s*:\s*bool\s*=\s*False", re.MULTILINE)
+        new_text, n = pattern.subn(
+            f"{marker}: bool = True  # {args.proposal} 落地 (evaluate passed)", qa_text, count=1)
+        if n:
+            qa_text = new_text
+            print(f"  ✅ {marker} → True (机制默认启用)")
+        else:
+            print(f"  ⚠️ 未找到 {marker} 开关赋值行, 保持现状")
 
     QA_SRC.write_text(qa_text)
     prop["status"] = "applied"

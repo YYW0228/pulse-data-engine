@@ -431,19 +431,20 @@ GUARD_STATS: dict[str, int] = {"intent": 0, "budget": 0, "loop": 0}
 
 # ── 生成后过程验证钩子 (postgen_verify): 返回前轻量质量检查 → Process 信号 ──
 # A/B 开关 (harness_evolve evaluate 变异控制); 只检测记录, 不修改回答内容 (行为不变)
-VERIFY_ENABLED: bool = False
+VERIFY_ENABLED: bool = True  # postgen_verify 落地 (evaluate passed)
 VERIFY_STATS: dict[str, int] = {"checked": 0, "inconsistent_citation": 0,
                                  "contradiction": 0, "short_answer": 0}
 
 
-def _verify_answer(answer_text: str, chunks: list[dict]) -> dict:
+def _verify_answer(answer_text: str, chunks: list[dict] | None) -> dict:
     """引用一致性 + 自洽性 + 短回答检查 (生成后、返回前)
 
     - inconsistent_citation: 回答内 [文档: X 引用不在检索块集合 → 幻觉/reward hacking 信号
     - contradiction: 声称"未找到/无法提供"却带引用, 或"引用来源: 无"却有正文引用 → 自洽矛盾
     - short_answer: 回答过短 (<100 字符) 且无引用 → 低质量信号
+    chunks=None (缓存命中路径): 无检索块可对照, 跳过一致性检查
     """
-    doc_set = {c["doc"] for c in chunks}
+    doc_set = {c["doc"] for c in chunks} if chunks else None
     cited = {m.strip() for m in re.findall(r"文档:\s*([^|\]\n]+)", answer_text)}
     # 引用清单 (引用来源: 段) 也算引用 — 但 "无" 不算
     m = re.search(r"引用来源[：:]\s*", answer_text)
@@ -452,7 +453,7 @@ def _verify_answer(answer_text: str, chunks: list[dict]) -> dict:
             line = line.strip().lstrip("-*·•").strip()
             if line and line != "无":
                 cited.add(line)
-    inconsistent = sorted(cited - doc_set)
+    inconsistent = sorted(cited - doc_set) if doc_set is not None else []
     contradiction = (("未找到" in answer_text or "无法提供" in answer_text) and bool(cited)) \
         or ("引用来源：无" in answer_text and bool(cited))
     short = len(answer_text.strip()) < 100 and not cited
@@ -549,6 +550,12 @@ def answer(query: str, top_k: int = 3, mask_metadata: bool = True,
             if tracer:
                 tracer.step("memory_hit", {"citations": hit.get("citations", 0)})
                 tracer.save({"success": True, "model": "memory_cache"})
+            # postgen_verify: 缓存回答也过自洽/短回答检查 (无检索块, 跳过一致性)
+            if VERIFY_ENABLED:
+                v = _verify_answer(hit["answer"], None)
+                VERIFY_STATS["checked"] += 1
+                VERIFY_STATS["contradiction"] += int(v["contradiction"])
+                VERIFY_STATS["short_answer"] += int(v["short_answer"])
             return hit["answer"]
 
     # ── 中间件链执行 (middleware_min): 意图/预算/loop 守卫按序运行 ──

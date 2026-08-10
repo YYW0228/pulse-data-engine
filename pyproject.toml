@@ -21,6 +21,10 @@ dependencies = [
 [project.optional-dependencies]
 ml = [
     "sentence-transformers>=3.0.0",
+    # macOS 生态坑: torch>=2.7 的 arm64 wheel 链接 3.13+ 私有符号
+    # (_PyDict_GetItemRef/_PyUnstable_EnableTryIncRef), 本机 CPython 构建均不导出;
+    # 2.6.0 是最后兼容 python.org 3.12 的版本 (2026-08 实测, 详见 harness-engineering 技能)
+    "torch==2.6.0",
 ]
 
 [dependency-groups]
