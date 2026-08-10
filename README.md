@@ -4,6 +4,10 @@
 
 **零成本、多源、生产级数据引擎 — 从采集到可视化，一条管道，月运营费 $0**
 
+![QA Harness 架构图](docs/assets/qa-harness-arch.png)
+
+> **AI 合规问答 Harness**: 3 秒出带引用的合规答案 · 每条可回溯法条原文 · 系统自己会进化 (共进化闭环) — [交互版 HTML](docs/assets/qa-harness-arch.html) · [思维导图文档](docs/qa-harness-mindmap.md)
+
 [![CI](https://github.com/YYW0228/pulse-data-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/YYW0228/pulse-data-engine/actions/workflows/ci.yml)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
