@@ -285,8 +285,8 @@ def test_verify_answer_detects_signals():
 
 def test_run_regression_collects_verify_signal(monkeypatch):
     """run_regression: VERIFY_STATS 增量 → 结果 verify 字段 → summarize 汇总"""
-    from scripts import harness_evolve as he
     from scripts import compliance_qa as qa_mod
+    from scripts import harness_evolve as he
 
     long_ok = "详细回答。" + "内容。" * 120 + "[文档: 算法备案管理办法.md | 章节: 备案流程]\n\n引用来源:\n- 算法备案管理办法.md"
 
