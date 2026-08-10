@@ -242,7 +242,7 @@ tests/
 
 ## 生产部署
 
-[完整部署文档 →](docs/ARCHITECTURE.md)
+[完整部署文档 →](docs/ARCHITECTURE.md) · [架构思维导图 (面试/讲述版) →](docs/qa-harness-mindmap.md)
 
 ```bash
 # 1. 配置 Secrets
