@@ -66,14 +66,57 @@ def test_propose_writes_file(monkeypatch, tmp_path, metrics_file):
 
     monkeypatch.setattr(he, "METRICS", metrics_file)
     monkeypatch.setattr(he, "PATTERNS", tmp_path / "empty_patterns")
-    monkeypatch.chdir(tmp_path)
-
-    # 构造 data 目录
     (tmp_path / "data").mkdir(exist_ok=True)
+    monkeypatch.setattr(he, "PROPOSALS", tmp_path / "data" / "harness_proposals.jsonl")
+
     rc = he.cmd_propose(type("A", (), {"n": 5})())
     assert rc == 0
-    proposals = (tmp_path / "data" / "harness_proposals.jsonl").read_text().splitlines()
-    assert len(proposals) == 1
+    proposals = he.PROPOSALS.read_text().splitlines()
+    assert len(proposals) == len(he.PARAM_VARIANTS)
     p = json.loads(proposals[0])
     assert "regression_set" in p
-    assert p["threshold"]["min_citations"] == 1
+    assert p["threshold"]["min_citation_delta"] == 0.0
+
+
+def test_apply_params_roundtrip():
+    """参数变异应用/恢复 (A/B 引擎核心)"""
+    from scripts import harness_evolve as he
+    import types
+
+    mod = types.SimpleNamespace(MMR_LAMBDA=0.7, MAX_CONTEXT_CHARS=6000)
+    saved = he.apply_params({"MMR_LAMBDA": 0.8}, mod)
+    assert mod.MMR_LAMBDA == 0.8
+    assert saved == {"MMR_LAMBDA": 0.7}
+    for k, v in saved.items():
+        setattr(mod, k, v)
+    assert mod.MMR_LAMBDA == 0.7  # 恢复
+
+
+def test_summarize_rate():
+    from scripts import harness_evolve as he
+
+    s = he.summarize([
+        {"citations": 2, "ms": 100}, {"citations": 0, "ms": 300},
+    ])
+    assert s["citation_rate"] == 0.5
+    assert s["avg_ms"] == 200.0
+    assert s["n"] == 2
+
+
+def test_apply_requires_passed(tmp_path, monkeypatch):
+    """未通过评估的提案不可落地"""
+    from scripts import harness_evolve as he
+
+    # 构造 rejected 提案
+    (tmp_path / "data").mkdir(exist_ok=True)
+    prop_file = tmp_path / "data" / "harness_proposals.jsonl"
+    prop_file.write_text(json.dumps({
+        "id": "bad", "status": "rejected", "params": {"MMR_LAMBDA": 0.9},
+    }) + "\n")
+    monkeypatch.setattr(he, "PROPOSALS", prop_file)
+    monkeypatch.setattr(he, "QA_SRC", tmp_path / "qa.py")
+    (tmp_path / "qa.py").write_text("MMR_LAMBDA = 0.7\n")
+
+    rc = he.cmd_apply(type("A", (), {"proposal": "bad"})())
+    assert rc == 1  # 拒绝落地
+    assert "MMR_LAMBDA = 0.7" in (tmp_path / "qa.py").read_text()  # 未修改

@@ -61,7 +61,7 @@ def _dump_large_chunk(doc: str, title: str, content: str) -> str:
         return str(path)
     except Exception:
         return "context_dumps/"
-MMR_LAMBDA = 0.7          # MMR 多样性权重 (0.7 = 相关性与多样性平衡)
+MMR_LAMBDA = 0.8          # MMR 多样性权重 (0.8 = 更贴题, A/B 通过 2026-08-10)
 
 # ── Embedding 模型缓存 (全局单例) ────────────────────────────────────
 _model = None
