@@ -296,6 +296,8 @@ def test_run_regression_collects_verify_signal(monkeypatch):
     def fake_answer(q, top_k=3):
         qa_mod.VERIFY_STATS["checked"] += 1
         qa_mod.VERIFY_STATS["inconsistent_citation"] += 1  # 模拟检测到 1 个不一致
+        qa_mod.CACHE_STATS["hit"] += 1  # 模拟缓存命中
+        qa_mod.GUARD_STATS["intent"] += 1  # 模拟守卫命中
         return long_ok
 
     monkeypatch.setattr(qa_mod, "compile_context", fake_compile_context)
@@ -303,6 +305,10 @@ def test_run_regression_collects_verify_signal(monkeypatch):
     results = he.run_regression(["测试问题"], top_k=3)
     assert results[0]["verify"]["checked"] == 1
     assert results[0]["verify"]["inconsistent_citation"] == 1
+    assert results[0]["cache"]["hit"] == 1
+    assert results[0]["guards"]["intent"] == 1
     s = he.summarize(results)
     assert s["verify_inconsistent"] == 1
+    assert s["cache_hit_rate"] == 1.0
+    assert s["guards_hit"] == 1
     assert s["citation_rate"] == 1.0

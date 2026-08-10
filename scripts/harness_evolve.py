@@ -220,6 +220,8 @@ def run_regression(queries: list[str], top_k: int = 3) -> list[dict]:
     for q in queries:
         t0 = time.time()
         vs_before = dict(getattr(qa, "VERIFY_STATS", {}))
+        cs_before = dict(getattr(qa, "CACHE_STATS", {}))
+        gs_before = dict(getattr(qa, "GUARD_STATS", {}))
         loop = False
         low_conf = False
         empty = False
@@ -241,6 +243,11 @@ def run_regression(queries: list[str], top_k: int = 3) -> list[dict]:
             # postgen_verify 信号: VERIFY_STATS 增量 (仅 VERIFY_ENABLED=True 时增长)
             vstats = {k: getattr(qa, "VERIFY_STATS", {}).get(k, 0) - vs_before.get(k, 0)
                       for k in ("checked", "inconsistent_citation", "contradiction", "short_answer")}
+            # P1-A: 缓存命中 + 守卫分布增量 (防投机信号)
+            cstats = {k: getattr(qa, "CACHE_STATS", {}).get(k, 0) - cs_before.get(k, 0)
+                      for k in ("hit", "miss")}
+            gstats = {k: getattr(qa, "GUARD_STATS", {}).get(k, 0) - gs_before.get(k, 0)
+                      for k in ("intent", "budget", "loop")}
 
             # loop 触发: 回答包含 loop 终止标记
             loop = "loop_capped" in r or "重复检索循环" in r
@@ -248,7 +255,8 @@ def run_regression(queries: list[str], top_k: int = 3) -> list[dict]:
             results.append({"query": q, "ms": round(ms, 1), "citations": citations,
                             "ok": len(r) > 200 and citations > 0,
                             "loop_triggered": loop, "low_confidence": low_conf,
-                            "empty_answer": empty, "verify": vstats})
+                            "empty_answer": empty, "verify": vstats,
+                            "cache": cstats, "guards": gstats})
         except Exception as e:
             results.append({"query": q, "ms": 0, "citations": 0, "ok": False,
                             "loop_triggered": False, "low_confidence": False,
@@ -268,6 +276,10 @@ def summarize(results: list[dict]) -> dict:
     verify_checked = sum(r.get("verify", {}).get("checked", 0) for r in results)
     verify_inc = sum(r.get("verify", {}).get("inconsistent_citation", 0) for r in results)
     verify_contra = sum(r.get("verify", {}).get("contradiction", 0) for r in results)
+    # P1-A: 缓存命中率 + 守卫分布 (防投机信号)
+    cache_hit = sum(r.get("cache", {}).get("hit", 0) for r in results)
+    cache_miss = sum(r.get("cache", {}).get("miss", 0) for r in results)
+    guards_total = sum(sum(r.get("guards", {}).values()) for r in results)
     return {
         "citation_rate": cit_ok / n,
         "avg_ms": round(avg_ms, 1),
@@ -278,6 +290,8 @@ def summarize(results: list[dict]) -> dict:
         "verify_checked": verify_checked,
         "verify_inconsistent": verify_inc,
         "verify_contradiction": verify_contra,
+        "cache_hit_rate": round(cache_hit / (cache_hit + cache_miss), 2) if (cache_hit + cache_miss) else None,
+        "guards_hit": guards_total,
     }
 
 
@@ -463,6 +477,9 @@ def cmd_evaluate(args) -> int:
 
     print(f"基线:   引用率 {base['citation_rate']:.2f} | 平均 {base['avg_ms']}ms")
     print(f"变异后: 引用率 {variant['citation_rate']:.2f} | 平均 {variant['avg_ms']}ms")
+    print(f"信号:   缓存命中 {base.get('cache_hit_rate')}→{variant.get('cache_hit_rate')} | "
+          f"守卫 {base.get('guards_hit')}→{variant.get('guards_hit')} | "
+          f"引用不一致 {variant.get('verify_inconsistent')}")
     print(f"Δ引用率 {cit_delta:+.2f} (门槛 ≥{min_cit_delta}) | Δ耗时 {ms_delta_pct:+.1f}% (门槛 ≤{max_ms_pct}%)")
     print(f"\n判定: {'✅ 通过' if passed else '❌ 拒绝'}")
 

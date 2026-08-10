@@ -46,8 +46,8 @@ def _active_db() -> Path:
 # ── Context Compiler 参数 ────────────────────────────────────────────
 SIM_THRESHOLD = 0.55      # 低于此相似度的块不进 context
 MAX_CONTEXT_CHARS = 8000  # context 总长度预算 (A/B 通过 2026-08-10)
-LARGE_CHUNK_CHARS = 4000  # 单块超过此长度 → 转存文件 (reactive_compaction)
-HANDOFF_THRESHOLD = 8     # history 超过 8 轮 → 生成交接摘要 (T6, buzz 模式)
+LARGE_CHUNK_CHARS = 3000 # 单块超过此长度 → 转存文件 (reactive_compaction)
+HANDOFF_THRESHOLD = 6 # history 超过 8 轮 → 生成交接摘要 (T6, buzz 模式)
 DUMP_DIR = Path(__file__).resolve().parent.parent / "data" / "context_dumps"
 
 # ── 记忆缓存 (memory_extract_consolidate 最小版, 结构提案 memory_extract_min) ──
@@ -435,6 +435,10 @@ VERIFY_ENABLED: bool = True  # postgen_verify 落地 (evaluate passed)
 VERIFY_STATS: dict[str, int] = {"checked": 0, "inconsistent_citation": 0,
                                  "contradiction": 0, "short_answer": 0}
 
+# ── 缓存命中统计 (P1-A: 验证器信号强化) ──
+# 缓存命中率趋势 = 防投机信号 (参数变异不应改变命中率; 若变异让缓存大量失效 → 可疑)
+CACHE_STATS: dict[str, int] = {"hit": 0, "miss": 0}
+
 
 def _verify_answer(answer_text: str, chunks: list[dict] | None) -> dict:
     """引用一致性 + 自洽性 + 短回答检查 (生成后、返回前)
@@ -550,6 +554,7 @@ def answer(query: str, top_k: int = 3, mask_metadata: bool = True,
             if tracer:
                 tracer.step("memory_hit", {"citations": hit.get("citations", 0)})
                 tracer.save({"success": True, "model": "memory_cache"})
+            CACHE_STATS["hit"] += 1
             # postgen_verify: 缓存回答也过自洽/短回答检查 (无检索块, 跳过一致性)
             if VERIFY_ENABLED:
                 v = _verify_answer(hit["answer"], None)
@@ -557,6 +562,8 @@ def answer(query: str, top_k: int = 3, mask_metadata: bool = True,
                 VERIFY_STATS["contradiction"] += int(v["contradiction"])
                 VERIFY_STATS["short_answer"] += int(v["short_answer"])
             return hit["answer"]
+
+    CACHE_STATS["miss"] += 1
 
     # ── 中间件链执行 (middleware_min): 意图/预算/loop 守卫按序运行 ──
     # 先编译检索块 (loop 守卫需要 chunks 指纹; budget 守卫独立)
