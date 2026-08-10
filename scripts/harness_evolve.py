@@ -384,6 +384,19 @@ def cmd_propose(args) -> int:
     return 0
 
 
+def _writeback_status(prop: dict, passed: bool) -> str:
+    """评估写回状态: 已落地 (applied) 提案重跑 (记录新基线) 不撤销落地状态
+
+    apply 后 evaluate 把 applied 打回 passed 会造成账本失真 (落地数低估 → meta 通过率低估)
+    """
+    was_applied = prop.get("status") == "applied"
+    status = "passed" if passed else "rejected"
+    if was_applied and passed:
+        status = "applied"
+    prop["status"] = status
+    return status
+
+
 def cmd_evaluate(args) -> int:
     """A/B 评估: --proposal <id> 应用参数变异 → 回归集对比基线 → 通过/拒绝"""
     from scripts import compliance_qa as qa
@@ -465,7 +478,8 @@ def cmd_evaluate(args) -> int:
               f"巩固动作 = {variant.get('consolidate_actions')} (合并+过滤, 附加信号)")
         print(f"\n判定: {'✅ 通过' if passed else '❌ 拒绝'}")
 
-        prop["status"] = "passed" if passed else "rejected"
+        # 已落地提案重跑 (记录新基线) 不撤销落地状态 (账本保持, 见 _writeback_status)
+        _writeback_status(prop, passed)
         prop["evaluation"] = {
             "ts": time.strftime("%Y-%m-%d %H:%M:%S"),
             "baseline": base, "variant": variant,
@@ -525,8 +539,8 @@ def cmd_evaluate(args) -> int:
         mark = "✅" if v["citations"] >= b["citations"] else "⚠️"
         print(f"  {mark} {b['query'][:35]} | cit {b['citations']}→{v['citations']} | {b['ms']:.0f}→{v['ms']:.0f}ms")
 
-    # 4. 写回状态
-    prop["status"] = "passed" if passed else "rejected"
+    # 4. 写回状态 (已落地提案重跑不撤销 applied, 同结构分支)
+    _writeback_status(prop, passed)
     prop["evaluation"] = {
         "ts": time.strftime("%Y-%m-%d %H:%M:%S"),
         "baseline": base, "variant": variant,

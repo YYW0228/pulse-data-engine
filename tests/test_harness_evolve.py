@@ -448,4 +448,22 @@ def test_memory_consolidate_off_switch():
 
     assert qa.CONSOLIDATE_ENABLED is True  # 已 apply (evaluate passed)
     src = Path(qa.__file__).read_text(encoding="utf-8")
-    assert "CONSOLIDATE_ENABLED: bool = True" in src  # impl_marker 存在于源码 (evaluate 判定)  
+    assert "CONSOLIDATE_ENABLED: bool = True" in src  # impl_marker 存在于源码 (evaluate 判定)
+
+
+def test_writeback_status_keeps_applied():
+    """账本状态保持: 已落地 (applied) 提案重跑 evaluate 通过 → 保持 applied (不被打回 passed)"""
+    from scripts import harness_evolve as he
+
+    # applied + 通过 → 保持 applied
+    p = {"id": "x", "status": "applied"}
+    assert he._writeback_status(p, True) == "applied"
+    assert p["status"] == "applied"
+    # applied + 失败 → rejected (落地失效? 不 — 仅状态记录, 代码已落地; 但账本如实记录重跑失败)
+    p2 = {"id": "y", "status": "applied"}
+    assert he._writeback_status(p2, False) == "rejected"
+    assert p2["status"] == "rejected"
+    # passed + 通过 → passed
+    p3 = {"id": "z", "status": "passed"}
+    assert he._writeback_status(p3, True) == "passed"
+    assert p3["status"] == "passed"
