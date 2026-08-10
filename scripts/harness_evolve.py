@@ -113,6 +113,22 @@ STRUCTURAL_VARIANTS = {
         "tests": ["意图分类拒绝仍工作", "预算闸门仍工作", "loop 检测仍工作"],
         "threshold": {"min_citation_delta": 0.0, "max_ms_increase_pct": 5},
     },
+    "postgen_verify": {
+        "pattern": "postgen_verify",
+        "impl_marker": "VERIFY_ENABLED",
+        "mechanism": "生成后过程验证钩子: answer() 返回前轻量检查 ①引用一致性 (回答内 [文档: X 是否都在检索块集合, 不在=幻觉/reward hacking) ②自洽性 (声称未找到却带引用 / 引用来源:无却有正文引用) ③短回答 (<100字符无引用); 结果写入 VERIFY_STATS Process 信号, 不改回答内容",
+        "insert_point": "compliance_qa.answer() 返回前 (tracer.save 之后): VERIFY_ENABLED 开关 + _verify_answer() 检查 + VERIFY_STATS 累计",
+        "pseudocode": """
+            if VERIFY_ENABLED:
+                v = _verify_answer(answer_text, chunks)
+                VERIFY_STATS.inconsistent_citation += v.inconsistent_count
+                VERIFY_STATS.contradiction += v.contradiction
+                VERIFY_STATS.short_answer += v.short_answer
+        """,
+        "prediction": "引用不一致计数=0 (模型不再引用检索块外文档) 且行为不变 (引用率不降, 耗时增幅 <10%)",
+        "tests": ["引用均来自检索块 → 无信号", "引用虚构文档 → inconsistent_citation+1", "声称未找到却带引用 → contradiction", "回答行为不变 (引用率/耗时不劣化)"],
+        "threshold": {"min_citation_delta": 0.0, "max_ms_increase_pct": 10},
+    },
 }
 
 
@@ -203,6 +219,7 @@ def run_regression(queries: list[str], top_k: int = 3) -> list[dict]:
     results = []
     for q in queries:
         t0 = time.time()
+        vs_before = dict(getattr(qa, "VERIFY_STATS", {}))
         loop = False
         low_conf = False
         empty = False
@@ -221,13 +238,17 @@ def run_regression(queries: list[str], top_k: int = 3) -> list[dict]:
             citations = r.count("文档:")
             empty = len(r.strip()) < 100
 
+            # postgen_verify 信号: VERIFY_STATS 增量 (仅 VERIFY_ENABLED=True 时增长)
+            vstats = {k: getattr(qa, "VERIFY_STATS", {}).get(k, 0) - vs_before.get(k, 0)
+                      for k in ("checked", "inconsistent_citation", "contradiction", "short_answer")}
+
             # loop 触发: 回答包含 loop 终止标记
             loop = "loop_capped" in r or "重复检索循环" in r
 
             results.append({"query": q, "ms": round(ms, 1), "citations": citations,
                             "ok": len(r) > 200 and citations > 0,
                             "loop_triggered": loop, "low_confidence": low_conf,
-                            "empty_answer": empty})
+                            "empty_answer": empty, "verify": vstats})
         except Exception as e:
             results.append({"query": q, "ms": 0, "citations": 0, "ok": False,
                             "loop_triggered": False, "low_confidence": False,
@@ -243,6 +264,9 @@ def summarize(results: list[dict]) -> dict:
     loop = sum(1 for r in results if r.get("loop_triggered"))
     low_conf = sum(1 for r in results if r.get("low_confidence"))
     empty = sum(1 for r in results if r.get("empty_answer"))
+    # postgen_verify 信号 (VERIFY_ENABLED=True 时才有增量)
+    verify_inc = sum(r.get("verify", {}).get("inconsistent_citation", 0) for r in results)
+    verify_contra = sum(r.get("verify", {}).get("contradiction", 0) for r in results)
     return {
         "citation_rate": cit_ok / n,
         "avg_ms": round(avg_ms, 1),
@@ -250,6 +274,8 @@ def summarize(results: list[dict]) -> dict:
         "loop_triggered": loop,
         "low_confidence_rate": round(low_conf / n, 2),
         "empty_answer": empty,
+        "verify_inconsistent": verify_inc,
+        "verify_contradiction": verify_contra,
     }
 
 
@@ -331,22 +357,72 @@ def cmd_evaluate(args) -> int:
         print(f"结构提案: {prop['rationale']}")
         print(f"插入点: {prop.get('diff', '')}")
         print(f"可验证预测: {prop.get('prediction', '')}")
-        print(f"⚠️ 结构提案需手动实现后重跑 (evaluate 仅记录基线)")
-        # 只记录基线, 不应用 (无 params)
-        base_results = run_regression(queries, top_k=args.top_k)
-        base = summarize(base_results)
-        prop["status"] = "implementing"
+        # 已实现判定: impl_marker 出现在 QA_SRC
+        marker = prop.get("impl_marker", "")
+        implemented = bool(marker and marker in QA_SRC.read_text())
+        if not implemented:
+            print(f"⚠️ 未实现 (marker: {marker or '未定义'}) — 记录基线, 实现后重跑对比")
+            base_results = run_regression(queries, top_k=args.top_k)
+            base = summarize(base_results)
+            prop["status"] = "implementing"
+            prop["evaluation"] = {
+                "ts": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "baseline": base, "decision": "pending_implementation",
+                "reason": "结构提案: 基线已记录, 待实现后重跑 evaluate 对比",
+            }
+            lines = [json.dumps(p, ensure_ascii=False) for p in proposals]
+            PROPOSALS.write_text("\n".join(lines) + "\n")
+            print(f"基线: 引用率 {base['citation_rate']:.2f} | 平均 {base['avg_ms']}ms | "
+                  f"loop={base['loop_triggered']} 低置信={base['low_confidence_rate']} "
+                  f"verify_inconsistent={base.get('verify_inconsistent')}")
+            print(f"→ 状态: {prop['status']} (实现后重跑 evaluate)")
+            return 0
+
+        # 已实现 → 变异对比: 开启机制开关跑回归 vs 基线
+        print(f"✅ 实现已就位 (marker: {marker}) → 基线 + 变异回归")
+        if prop.get("evaluation", {}).get("baseline") is None:
+            # 已实现但无基线: 先跑基线 (机制关闭状态)
+            base_results = run_regression(queries, top_k=args.top_k)
+            base = summarize(base_results)
+        else:
+            base = prop["evaluation"]["baseline"]
+        saved = getattr(qa, marker, False)
+        setattr(qa, marker, True)
+        try:
+            qa.answer("什么是算法备案", top_k=1)  # 预热 (消除冷启动偏差)
+            variant_results = run_regression(queries, top_k=args.top_k)
+        finally:
+            setattr(qa, marker, saved)
+        variant = summarize(variant_results)
+
+        thr = prop.get("threshold", {})
+        min_cit_delta = thr.get("min_citation_delta", 0.0)
+        max_ms_pct = thr.get("max_ms_increase_pct", 15)
+        cit_delta = variant["citation_rate"] - base["citation_rate"]
+        ms_delta_pct = (variant["avg_ms"] - base["avg_ms"]) / max(base["avg_ms"], 1) * 100
+        # 可验证预测: 引用一致性 = 0 (钩子开启后无跨检索块引用)
+        pred_ok = variant.get("verify_inconsistent", 0) == 0
+        passed = cit_delta >= min_cit_delta and ms_delta_pct <= max_ms_pct and pred_ok
+
+        print(f"基线:   引用率 {base['citation_rate']:.2f} | 平均 {base['avg_ms']}ms")
+        print(f"变异后: 引用率 {variant['citation_rate']:.2f} | 平均 {variant['avg_ms']}ms")
+        print(f"Δ引用率 {cit_delta:+.2f} (门槛 ≥{min_cit_delta}) | Δ耗时 {ms_delta_pct:+.1f}% (门槛 ≤{max_ms_pct}%)")
+        print(f"预测: 引用不一致 = {variant.get('verify_inconsistent')} (期望 0) | "
+              f"自洽矛盾 = {variant.get('verify_contradiction')}")
+        print(f"\n判定: {'✅ 通过' if passed else '❌ 拒绝'}")
+
+        prop["status"] = "passed" if passed else "rejected"
         prop["evaluation"] = {
             "ts": time.strftime("%Y-%m-%d %H:%M:%S"),
-            "baseline": base, "decision": "pending_implementation",
-            "reason": "结构提案: 基线已记录, 待手动实现后重跑对比",
+            "baseline": base, "variant": variant,
+            "cit_delta": round(cit_delta, 3), "ms_delta_pct": round(ms_delta_pct, 1),
+            "decision": "pass" if passed else "reject",
+            "reason": f"cit_delta={cit_delta:+.2f} ms_delta={ms_delta_pct:+.1f}% pred_ok={pred_ok}",
         }
         lines = [json.dumps(p, ensure_ascii=False) for p in proposals]
         PROPOSALS.write_text("\n".join(lines) + "\n")
-        print(f"基线: 引用率 {base['citation_rate']:.2f} | 平均 {base['avg_ms']}ms | "
-              f"loop={base['loop_triggered']} 低置信={base['low_confidence_rate']}")
-        print(f"→ 状态: {prop['status']} (实现后重跑 evaluate)")
-        return 0
+        print(f"\n→ 状态已写回: {args.proposal} = {prop['status']}")
+        return 0 if passed else 2
 
     print(f"变异: {prop.get('params', {})} | 理由: {prop['rationale']}")
     print(f"diff: {prop['diff']}")
@@ -639,6 +715,7 @@ PROPOSAL_PRIORITY: dict[str, float] = {
     "handoff_summary": 0.5,
     "field_level_source_grounding": 0.5,
     "prefix_cache_stability": 0.6,
+    "postgen_verify": 1.0,
 }
 
 

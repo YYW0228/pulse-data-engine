@@ -429,6 +429,37 @@ def _generate_handoff(history: list[dict[str, str]], api_key: str, model_name: s
 # 护栏抽成可插拔列表: 新增护栏只需 append; 每次命中计数 (新 Process 信号)
 GUARD_STATS: dict[str, int] = {"intent": 0, "budget": 0, "loop": 0}
 
+# ── 生成后过程验证钩子 (postgen_verify): 返回前轻量质量检查 → Process 信号 ──
+# A/B 开关 (harness_evolve evaluate 变异控制); 只检测记录, 不修改回答内容 (行为不变)
+VERIFY_ENABLED: bool = False
+VERIFY_STATS: dict[str, int] = {"checked": 0, "inconsistent_citation": 0,
+                                 "contradiction": 0, "short_answer": 0}
+
+
+def _verify_answer(answer_text: str, chunks: list[dict]) -> dict:
+    """引用一致性 + 自洽性 + 短回答检查 (生成后、返回前)
+
+    - inconsistent_citation: 回答内 [文档: X 引用不在检索块集合 → 幻觉/reward hacking 信号
+    - contradiction: 声称"未找到/无法提供"却带引用, 或"引用来源: 无"却有正文引用 → 自洽矛盾
+    - short_answer: 回答过短 (<100 字符) 且无引用 → 低质量信号
+    """
+    doc_set = {c["doc"] for c in chunks}
+    cited = {m.strip() for m in re.findall(r"文档:\s*([^|\]\n]+)", answer_text)}
+    # 引用清单 (引用来源: 段) 也算引用 — 但 "无" 不算
+    m = re.search(r"引用来源[：:]\s*", answer_text)
+    if m:
+        for line in answer_text[m.end():].splitlines():
+            line = line.strip().lstrip("-*·•").strip()
+            if line and line != "无":
+                cited.add(line)
+    inconsistent = sorted(cited - doc_set)
+    contradiction = (("未找到" in answer_text or "无法提供" in answer_text) and bool(cited)) \
+        or ("引用来源：无" in answer_text and bool(cited))
+    short = len(answer_text.strip()) < 100 and not cited
+    return {"checked": True, "inconsistent": inconsistent,
+            "inconsistent_count": len(inconsistent),
+            "contradiction": contradiction, "short_answer": short}
+
 
 def _guards_run(query: str, chunks: list[dict], budget: dict | None,
                 t0: float, tracer) -> str | None:
@@ -642,6 +673,17 @@ def answer(query: str, top_k: int = 3, mask_metadata: bool = True,
                                    "tokens_out": tokens_out, "citations": citations,
                                    "answer_len": len(answer_text)})
             tracer.save({"success": True, "model": model_name, "citations": citations})
+        # ── 生成后过程验证钩子 (postgen_verify): 返回前轻量检查 → Process 信号 ──
+        if VERIFY_ENABLED:
+            v = _verify_answer(answer_text, chunks)
+            VERIFY_STATS["checked"] += 1
+            VERIFY_STATS["inconsistent_citation"] += v["inconsistent_count"]
+            VERIFY_STATS["contradiction"] += int(v["contradiction"])
+            VERIFY_STATS["short_answer"] += int(v["short_answer"])
+            if tracer:
+                tracer.step("verify", {"inconsistent": v["inconsistent_count"],
+                                       "contradiction": v["contradiction"],
+                                       "short_answer": v["short_answer"]})
         return answer_text
     except Exception as e:
         _record_metric(query, (time.time() - t0) * 1000, len(chunks), 0,

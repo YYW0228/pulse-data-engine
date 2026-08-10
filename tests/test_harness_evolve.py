@@ -253,3 +253,56 @@ def test_auto_propose_meta_weight_blocks_low_pass(tmp_path, monkeypatch):
     assert "context_budget_up" not in ids
     assert "sim_threshold_strict" in ids
     assert all(c.get("meta_weight", 0) > 0 for c in created)
+
+
+def test_verify_answer_detects_signals():
+    """postgen_verify: 引用一致性 / 自洽性 / 短回答检测"""
+    from scripts import compliance_qa as qa
+
+    chunks = [
+        {"doc": "算法备案管理办法.md", "title": "备案流程"},
+        {"doc": "生成式AI服务规定.md", "title": "总则"},
+    ]
+    # 一致: 引用均在检索块内 → 无信号
+    ok = qa._verify_answer(
+        "根据[文档: 算法备案管理办法.md | 章节: 备案流程], 需提交安全评估材料。\n\n引用来源:\n- 算法备案管理办法.md",
+        chunks)
+    assert ok["inconsistent_count"] == 0
+    assert ok["contradiction"] is False
+    # 虚构引用: 引用不在检索块 → inconsistent_citation
+    bad = qa._verify_answer(
+        "据[文档: 不存在的法规.md | 章节: x]规定...\n\n引用来源:\n- 不存在的法规.md", chunks)
+    assert bad["inconsistent_count"] == 1
+    assert "不存在的法规.md" in bad["inconsistent"]
+    # 自洽矛盾: 声称未找到却带引用
+    contra = qa._verify_answer(
+        "资料中未找到相关内容。\n\n引用来源:\n- 算法备案管理办法.md", chunks)
+    assert contra["contradiction"] is True
+    # 短回答: <100 字符且无引用
+    short = qa._verify_answer("不清楚。", chunks)
+    assert short["short_answer"] is True
+
+
+def test_run_regression_collects_verify_signal(monkeypatch):
+    """run_regression: VERIFY_STATS 增量 → 结果 verify 字段 → summarize 汇总"""
+    from scripts import harness_evolve as he
+    from scripts import compliance_qa as qa_mod
+
+    long_ok = "详细回答。" + "内容。" * 120 + "[文档: 算法备案管理办法.md | 章节: 备案流程]\n\n引用来源:\n- 算法备案管理办法.md"
+
+    def fake_compile_context(q, top_k=3, mask_metadata=False):
+        return [{"doc": "算法备案管理办法.md", "title": "备案流程", "hits": 0.8, "char_len": 300}]
+
+    def fake_answer(q, top_k=3):
+        qa_mod.VERIFY_STATS["checked"] += 1
+        qa_mod.VERIFY_STATS["inconsistent_citation"] += 1  # 模拟检测到 1 个不一致
+        return long_ok
+
+    monkeypatch.setattr(qa_mod, "compile_context", fake_compile_context)
+    monkeypatch.setattr(qa_mod, "answer", fake_answer)
+    results = he.run_regression(["测试问题"], top_k=3)
+    assert results[0]["verify"]["checked"] == 1
+    assert results[0]["verify"]["inconsistent_citation"] == 1
+    s = he.summarize(results)
+    assert s["verify_inconsistent"] == 1
+    assert s["citation_rate"] == 1.0
