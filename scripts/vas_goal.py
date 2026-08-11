@@ -213,8 +213,29 @@ def _strip_box_chars(text: str) -> str:
     return re.sub(r"[│┌┐└┘─╭╮╰╯╱╲]", "", text)
 
 
+def _parse_steps_regex(cleaned: str) -> list[GoalStep]:
+    """正则容错解析: 容忍 verify_gate/description 内嵌未转义引号"""
+    # 逐 step 提取: description 以 '", "step_type"' 为终止标记 (容忍内部引号)
+    step_re = re.compile(
+        r'\{\s*"id":\s*"([^"]+)"\s*,\s*"title":\s*"([^"]+)"\s*,\s*'
+        r'"description":\s*"(.*?)"\s*,\s*"step_type":\s*"([^"]+)"'
+        r'(?:\s*,\s*"verify_gate":\s*"(.*?)"\s*\})?\s*\}',
+        re.DOTALL,
+    )
+    steps: list[GoalStep] = []
+    for m in step_re.finditer(cleaned):
+        steps.append(GoalStep(
+            id=m.group(1),
+            title=m.group(2),
+            description=m.group(3),
+            step_type=m.group(4),
+            verify_gate=m.group(5) or "",
+        ))
+    return steps
+
+
 def parse_plan(raw: str) -> list[GoalStep]:
-    """解析 agent 返回的 plan JSON (容忍 CLI 输出噪音/ANSI 框线)"""
+    """解析 agent 返回的 plan JSON (容忍 CLI 输出噪音/ANSI 框线/未转义引号)"""
     cleaned = raw.strip()
     # 去除可能的 markdown 代码块
     if "```json" in cleaned:
@@ -222,7 +243,7 @@ def parse_plan(raw: str) -> list[GoalStep]:
     elif "```" in cleaned:
         cleaned = cleaned.split("```")[1].split("```")[0].strip()
 
-    # 用括号配平提取所有候选 JSON 块
+    # 1. 先试标准 JSON 解析 (括号配平提取候选块)
     candidates = _extract_json_blocks(cleaned)
     if not candidates:
         candidates = [cleaned]
@@ -247,6 +268,11 @@ def parse_plan(raw: str) -> list[GoalStep]:
             ))
         if steps:
             return steps
+
+    # 2. 标准解析失败 → 正则容错 (处理未转义引号)
+    regex_steps = _parse_steps_regex(_strip_box_chars(cleaned))
+    if regex_steps:
+        return regex_steps
 
     raise ValueError(f"plan JSON 解析失败 (找不到有效 steps)\n原始: {raw[:500]}")
 
@@ -274,7 +300,8 @@ EXEC_PROMPT = """你是 VAS 的执行 agent。仓库在: {repo}
 def run_agent(engine: str, prompt: str, repo: Path, timeout: int = 300) -> tuple[int, str]:
     """调用执行引擎 (hermes / claude)"""
     if engine == "hermes":
-        return run_cmd(["hermes", "chat", "-q", prompt, "--yolo"], cwd=repo, timeout=timeout)
+        # -Q: 禁用渲染框 (框线+折行会破坏 JSON 字符串 → Invalid control character)
+        return run_cmd(["hermes", "chat", "-q", prompt, "--yolo", "-Q"], cwd=repo, timeout=timeout)
     elif engine == "claude":
         return run_cmd(["claude", "-p", prompt, "--dangerously-skip-permissions"], cwd=repo, timeout=timeout)
     else:
