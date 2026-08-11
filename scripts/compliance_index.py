@@ -119,11 +119,21 @@ def index_docs(source: Path, rebuild: bool = False, include_jsonl: bool = False,
             content VARCHAR,
             char_len INTEGER,
             embedding FLOAT[512],
-            importance FLOAT
+            importance FLOAT,
+            fetched_at TIMESTAMP
         )
     """)
     if rebuild:
         con.execute("DELETE FROM compliance_chunks")
+    # 兼容旧表: 缺 fetched_at 列 → ALTER 补齐 (不丢数据)
+    cols = [r[0] for r in con.execute(
+        "SELECT column_name FROM information_schema.columns WHERE table_name='compliance_chunks'").fetchall()]
+    if "fetched_at" not in cols:
+        try:
+            con.execute("ALTER TABLE compliance_chunks ADD COLUMN fetched_at TIMESTAMP")
+            print("→ 兼容: compliance_chunks 补 fetched_at 列")
+        except Exception:
+            pass
 
     files = sorted(source.rglob("*.md"))
     # 支持 doc_parser 输出的 JSONL (客户文档: pdf/docx → 解析块)
@@ -152,12 +162,15 @@ def index_docs(source: Path, rebuild: bool = False, include_jsonl: bool = False,
         # 批量编码该文档所有块
         contents = [b["content"] for b in blocks]
         vecs = model.encode(contents, normalize_embeddings=True)
+        import datetime as _dt
+        fetched_at = _dt.datetime.fromtimestamp(f.stat().st_mtime).isoformat()
         for b, vec in zip(blocks, vecs):
             total_chunks += 1
             total_chars += len(b["content"])
             con.execute(
-                "INSERT INTO compliance_chunks VALUES (?,?,?,?,?,?,?)",
-                [doc_id, f.name, b["title"], b["content"], len(b["content"]), vec.tolist(), b["importance"]],
+                "INSERT INTO compliance_chunks VALUES (?,?,?,?,?,?,?,?)",
+                [doc_id, f.name, b["title"], b["content"], len(b["content"]),
+                 vec.tolist(), b["importance"], fetched_at],
             )
 
     # 建向量索引

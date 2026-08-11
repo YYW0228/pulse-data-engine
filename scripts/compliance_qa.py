@@ -239,7 +239,7 @@ def retrieve(query: str, top_k: int = 5) -> list[dict]:
         rows = con.execute(f"""
             SELECT doc_name, title, content, char_len,
                    list_cosine_similarity(embedding, ?) as sim,
-                   importance
+                   importance, fetched_at
             FROM compliance_chunks
             ORDER BY sim DESC
             LIMIT {top_k * 3}
@@ -247,8 +247,9 @@ def retrieve(query: str, top_k: int = 5) -> list[dict]:
         con.close()
         return [
             {"doc": d, "title": t, "content": c[:3000], "hits": round(float(s), 3),
-             "char_len": cl, "importance": float(imp or 0.3)}
-            for d, t, c, cl, s, imp in rows
+             "char_len": cl, "importance": float(imp or 0.3),
+             "fetched_at": str(fa or "")}
+            for d, t, c, cl, s, imp, fa in rows
         ]
 
     results = _query(_active_db())
@@ -534,6 +535,44 @@ VERIFY_STATS: dict[str, int] = {"checked": 0, "inconsistent_citation": 0,
 CACHE_STATS: dict[str, int] = {"hit": 0, "miss": 0}
 
 
+def _gap_note(answer_text: str, chunks: list[dict] | None) -> str:
+    """Gap analysis (吞噬 gbrain think) — 显式标注知识缺口.
+
+    两类缺口:
+    1. 引用过时: 检索块 fetched_at > 90 天前 → 提示时效风险
+    2. 无引用: 回答声称有内容但无 [文档: 引用] → 提示不可溯源
+    返回 markdown 提示段 (无缺口返回空串).
+    """
+    from datetime import datetime
+
+    if not chunks:
+        return ""
+    gaps: list[str] = []
+
+    # 1. 引用过时检测 (引用块时间戳)
+    stale_docs: dict[str, str] = {}
+    try:
+        for c in chunks:
+            fa = c.get("fetched_at", "")
+            if fa:
+                age_days = (datetime.now()
+                            - datetime.fromisoformat(fa)).days
+                if age_days > 90:
+                    stale_docs[c["doc"]] = f"{age_days} 天前"
+    except Exception:
+        pass
+    if stale_docs:
+        names = ", ".join(f"{k} ({v})" for k, v in
+                          list(stale_docs.items())[:3])
+        gaps.append(f"⚠️ 时效提示: 引用的部分文档已较旧 ({names}), 建议核对最新法规动态")
+
+    # 2. 无引用检测 (回答正文无 [文档: 标记)
+    if "[文档:" not in answer_text and "引用来源" not in answer_text:
+        gaps.append("⚠️ 知识缺口: 本回答无文档引用, 属模型通用知识而非知识库溯源, 决策前请人工核实")
+
+    return "\n".join(gaps)
+
+
 def _verify_answer(answer_text: str, chunks: list[dict] | None) -> dict:
     """引用一致性 + 自洽性 + 短回答检查 (生成后、返回前)
 
@@ -806,6 +845,10 @@ def answer(query: str, top_k: int = 3, mask_metadata: bool = True,
             CONSOLIDATE_STATS["filtered"] += cs["filtered"]
             if tracer:
                 tracer.step("consolidate", cs)
+        # ── Gap note (gbrain think 吞噬): 显式标注知识缺口 — 引用过时/声明无引用 ──
+        gap = _gap_note(answer_text, chunks)
+        if gap:
+            answer_text = answer_text.rstrip() + "\n\n" + gap
         return answer_text
     except Exception as e:
         _record_metric(query, (time.time() - t0) * 1000, len(chunks), 0,
