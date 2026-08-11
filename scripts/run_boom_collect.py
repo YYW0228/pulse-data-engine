@@ -134,6 +134,19 @@ def run_scan(platform: str | None = None, mock_only: bool = False, finops_report
     pipe.close()
     logger.info(f"扫描完成: {total_collected} 条作品, {total_booms} 个爆款, L1调用 {l1_calls} 次")
 
+    # ── oplog 审计 (借鉴 sandbank AgentOp 模式) ──
+    try:
+        from pulse.agent_bus import AgentBus
+        bus = AgentBus()
+        bus.oplog("collect", agent="boom-monitor",
+                  payload={"platform": platform or "all",
+                           "collected": total_collected,
+                           "booms": total_booms,
+                           "l1_calls": l1_calls})
+        logger.info(f"📋 oplog 审计已写入: {bus.log_dir}")
+    except Exception as e:
+        logger.warning(f"oplog 审计写入失败: {e}")
+
     # ── finops 成本核算 ──
     if finops_report and l1_calls > 0:
         try:

@@ -26,6 +26,7 @@ import json
 import os
 import time
 import uuid
+import datetime
 from pathlib import Path
 from typing import Any, Optional
 
@@ -38,8 +39,57 @@ class AgentBus:
         self.inbox_dir = self.root / "inbox"
         self.artifact_dir = self.root / "artifacts"
         self.context_dir = self.root / "context"
-        for d in (self.inbox_dir, self.artifact_dir, self.context_dir):
+        self.log_dir = self.root / "logs"
+        for d in (self.inbox_dir, self.artifact_dir, self.context_dir, self.log_dir):
             d.mkdir(parents=True, exist_ok=True)
+
+    # ── 审计日志 (oplog) — 借鉴 sandbank AgentOp 模式 ──────────────
+
+    def oplog(self, action: str, agent: str = "unknown",
+              path: str | None = None, payload: dict | None = None,
+              metadata: dict | None = None) -> str:
+        """记录一次 agent 操作到审计日志 (按日期轮转: logs/<date>.jsonl)。
+
+        action: 操作名 (如 collect/compute/export/verify)
+        agent:  操作主体 (如 boom-monitor/intel-pipeline)
+        path:   涉及路径 (可选)
+        payload: 操作负载摘要 (可选, 禁止记录密钥类内容)
+        返回 op id。
+        """
+        op_id = uuid.uuid4().hex[:12]
+        entry = {
+            "id": op_id,
+            "action": action,
+            "agent": agent,
+            "path": path,
+            "payload": payload or {},
+            "metadata": metadata or {},
+            "timestamp": int(time.time() * 1000),
+        }
+        today = datetime.date.today().isoformat()
+        log_file = self.log_dir / f"{today}.jsonl"
+        with open(log_file, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        return op_id
+
+    def export_oplog(self, agent: str | None = None,
+                     since: str | None = None) -> list[dict]:
+        """导出审计日志。agent 过滤操作主体; since: ISO 日期 (含)。"""
+        entries = []
+        for f in sorted(self.log_dir.glob("*.jsonl")):
+            if since and f.stem < since:
+                continue
+            for line in f.read_text(encoding="utf-8").splitlines():
+                if not line.strip():
+                    continue
+                try:
+                    e = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if agent and e.get("agent") != agent:
+                    continue
+                entries.append(e)
+        return entries
 
     # ── 消息 (inbox) ──────────────────────────────────────────────
 
