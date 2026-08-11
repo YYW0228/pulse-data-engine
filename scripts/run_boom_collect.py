@@ -1,10 +1,11 @@
 """
-scripts/run_boom_collect.py — 爆款监控每日扫描
+scripts/run_boom_collect.py — 爆款监控每日扫描 + finops 成本核算
 
 用法:
   uv run python scripts/run_boom_collect.py              # 全平台扫描
   uv run python scripts/run_boom_collect.py --platform douyin  # 单平台
   uv run python scripts/run_boom_collect.py --mock-only   # 仅模拟数据 (无 API key)
+  uv run python scripts/run_boom_collect.py --finops      # 扫描后输出成本报告
 
 调度建议 (crontab):
   20 0 * * * cd /root/projects/pulse-data-engine && uv run python scripts/run_boom_collect.py
@@ -13,8 +14,11 @@ scripts/run_boom_collect.py — 爆款监控每日扫描
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import logging
+import sys
 import time
+from pathlib import Path
 
 logging.basicConfig(
     level=logging.INFO,
@@ -23,19 +27,32 @@ logging.basicConfig(
 )
 logger = logging.getLogger("run_boom_collect")
 
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
 
-def run_scan(platform: str | None = None, mock_only: bool = False):
-    """执行一轮扫描: 采集 → 评分 → L1 分析 → 写库"""
-    import sys
-    from pathlib import Path
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+# 估算值: L1 每次分析约 1000 input + 300 output tokens (prompt + 摘要)
+L1_INPUT_TOKENS = 1000
+L1_OUTPUT_TOKENS = 300
 
+
+def _load_finops():
+    """独立加载 finops.py (不触发 pulse/__init__.py 的 duckdb 链)"""
+    spec = importlib.util.spec_from_file_location("pulse_finops", ROOT / "pulse" / "finops.py")
+    mod = importlib.util.module_from_spec(spec)
+    if spec is None or spec.loader is None:
+        raise ImportError("无法加载 pulse/finops.py")
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def run_scan(platform: str | None = None, mock_only: bool = False, finops_report: bool = False):
+    """执行一轮扫描: 采集 → 评分 → L1 分析 → 写库 → (finops 成本)"""
     from pulse.extractors.boom import (
-        L1Analyzer,
         collect_posts,
         compute_baseline,
         freeze_evidence,
         list_creators,
+        L1Analyzer,
     )
     from pulse.pipelines.boom_pipeline import BoomPipeline
 
@@ -47,6 +64,7 @@ def run_scan(platform: str | None = None, mock_only: bool = False):
 
     total_collected = 0
     total_booms = 0
+    l1_calls = 0
 
     for creator in targets:
         logger.info(f"  采集 [{creator.platform}] {creator.name}")
@@ -105,6 +123,7 @@ def run_scan(platform: str | None = None, mock_only: bool = False):
                 analysis["tier"] = "L1"
                 analysis["raw_result"] = dict(analysis)  # avoid self-reference
                 pipe.save_analysis(analysis)
+                l1_calls += 1
                 logger.info(f"      L1分析完成: {analysis.get('summary', '')[:40]}...")
 
         pipe.log_scan(creator.platform, 1, len(posts),
@@ -113,7 +132,34 @@ def run_scan(platform: str | None = None, mock_only: bool = False):
                       )["grade_code"] in ("T3", "T2", "T1")))
 
     pipe.close()
-    logger.info(f"扫描完成: {total_collected} 条作品, {total_booms} 个爆款")
+    logger.info(f"扫描完成: {total_collected} 条作品, {total_booms} 个爆款, L1调用 {l1_calls} 次")
+
+    # ── finops 成本核算 ──
+    if finops_report and l1_calls > 0:
+        try:
+            finops = _load_finops()
+            models = finops.DEFAULT_PRICING_REGISTRY["entries"]
+            usage = [
+                {"id": f"l1-scan-{i}", "provider": "deepseek", "model": "deepseek-chat",
+                 "metric": "input_tokens", "unit": "1M tokens",
+                 "quantity": L1_INPUT_TOKENS / 1_000_000,
+                 "companyId": "starTalent", "productId": "boom-monitor"}
+                for i in range(l1_calls)
+            ] + [
+                {"id": f"l1-scan-out-{i}", "provider": "deepseek", "model": "deepseek-chat",
+                 "metric": "output_tokens", "unit": "1M tokens",
+                 "quantity": L1_OUTPUT_TOKENS / 1_000_000,
+                 "companyId": "starTalent", "productId": "boom-monitor"}
+                for i in range(l1_calls)
+            ]
+            costs = finops.estimate_costs_from_usage(usage, models, "starTalent")
+            summary = finops.summarize_finops(costs, [], "starTalent")
+            total_cost = finops.round_money(sum(c["amount"] for c in costs))
+            logger.info(f"💰 本次扫描 L1 成本: {total_cost} CNY "
+                        f"({l1_calls} 次分析 × 估算 {L1_INPUT_TOKENS}+{L1_OUTPUT_TOKENS} tokens)")
+        except Exception as e:
+            logger.warning(f"finops 成本核算失败: {e}")
+
     return total_collected, total_booms
 
 
@@ -123,10 +169,13 @@ def main():
                         help="限定平台 (默认全部)")
     parser.add_argument("--mock-only", action="store_true",
                         help="仅用模拟数据 (跳过 TikHub)")
+    parser.add_argument("--finops", action="store_true",
+                        help="扫描后输出成本核算 (finops)")
     args = parser.parse_args()
 
     start = time.time()
-    collected, booms = run_scan(platform=args.platform, mock_only=args.mock_only)
+    collected, booms = run_scan(platform=args.platform, mock_only=args.mock_only,
+                                finops_report=args.finops)
     elapsed = time.time() - start
     logger.info(f"耗时: {elapsed:.1f}s | 采集: {collected} | 爆款: {booms}")
 
