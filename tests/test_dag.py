@@ -70,17 +70,20 @@ def test_dependency_failure_skips_downstream():
 
 
 def test_dag_state_persisted():
-    """DAG 运行状态应写入 DuckDB"""
+    """DAG 运行状态应写入 DuckDB (临时 DB, 避免与 8501 服务锁冲突)"""
     import duckdb
+    import tempfile
+    from pathlib import Path
 
     duckdb.connect(":memory:")
-    dag = DAG(name="test_persist")
+    with tempfile.TemporaryDirectory() as tmp:
+        dag = DAG(name="test_persist", db_path=Path(tmp) / "test.duckdb")
 
-    @dag.task(name="p1", depends_on=[])
-    def task_p1():
-        pass
+        @dag.task(name="p1", depends_on=[])
+        def task_p1():
+            pass
 
-    dag.run(run_id="persist_001")
-    rows = dag.con.execute("SELECT COUNT(*) FROM dag_runs WHERE run_id='persist_001'").fetchone()[0]
-    assert rows >= 1  # at least one task recorded
-    dag.close()
+        dag.run(run_id="persist_001")
+        rows = dag.con.execute("SELECT COUNT(*) FROM dag_runs WHERE run_id='persist_001'").fetchone()[0]
+        assert rows >= 1  # at least one task recorded
+        dag.close()
