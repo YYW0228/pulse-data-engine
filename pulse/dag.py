@@ -18,6 +18,8 @@ from typing import Any
 
 logger = logging.getLogger("pulse.dag")
 
+CONSISTENCY = {'exclusive-lock', 'branch-merge', 'none'}
+
 
 class Task:
     """DAG 计算节点"""
@@ -45,13 +47,27 @@ class Task:
 class DAG:
     """有向无环图 — 任务编排引擎"""
 
-    def __init__(self, name: str, db_path: str | Path = "data/jobs.duckdb") -> None:
+    def __init__(
+        self,
+        name: str,
+        db_path: str | Path = "data/jobs.duckdb",
+        consistency: str = "exclusive-lock",
+    ) -> None:
         self.name = name
         self.tasks: dict[str, Task] = {}
         self.db_path = Path(db_path)
+        self.consistency = consistency
         import duckdb
 
-        self.con = duckdb.connect(str(self.db_path))
+        try:
+            self.con = duckdb.connect(str(self.db_path))
+        except duckdb.IOException:
+            if consistency == "exclusive-lock":
+                raise RuntimeError(
+                    f"DAG '{name}': 无法打开 DuckDB '{self.db_path}' — "
+                    f"另一进程可能持有写锁。检查: lsof {self.db_path} 或等待后重试。"
+                ) from None
+            raise
         self._init_state_table()
 
     def _init_state_table(self):
