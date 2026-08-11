@@ -8,6 +8,8 @@ scripts/livestream_script.py — 直播口播脚本生成 (零 LLM, 纯拼接)
   from scripts.livestream_script import build_script, load_signals, load_insight
 """
 
+import argparse
+import datetime
 import logging
 from pathlib import Path
 
@@ -92,8 +94,43 @@ def build_script(signals: list[dict], insight_text: str, date_str: str) -> str:
 
 
 def main():
-    """占位: s2 阶段填充为完整 CLI (加载信号 + 洞察 → 输出脚本)"""
-    raise NotImplementedError("main() 由 s2 阶段实现")
+    """s2 CLI: 加载信号 + 洞察 → 生成直播脚本。
+
+    全降级路径: db 缺失/表缺失/洞察目录缺失均不抛异常, 照常生成文件。
+    """
+    project_root = Path(__file__).resolve().parent.parent
+    default_db = project_root / "data" / "market_signals.duckdb"
+    default_insight_dir = project_root / "data" / "market_insight"
+
+    parser = argparse.ArgumentParser(description="生成直播口播脚本 (零 LLM, 纯拼接)")
+    parser.add_argument(
+        "--db", type=Path, default=default_db,
+        help=f"market_signals DuckDB 路径 (默认: {default_db})",
+    )
+    parser.add_argument(
+        "--insight-dir", type=Path, default=default_insight_dir,
+        help=f"市场洞察 md 目录 (默认: {default_insight_dir})",
+    )
+    parser.add_argument(
+        "--out", type=Path, default=None,
+        help="输出 md 路径 (默认: data/livestream/<date>.md)",
+    )
+    parser.add_argument(
+        "--date", default=None,
+        help="日期 YYYY-MM-DD (默认: 今天)",
+    )
+    args = parser.parse_args()
+
+    date_str = args.date or datetime.date.today().isoformat()
+    out = args.out or (project_root / "data" / "livestream" / f"{date_str}.md")
+
+    signals = load_signals(args.db)
+    insight_text = load_insight(args.insight_dir)
+    script = build_script(signals, insight_text, date_str)
+
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(script, encoding="utf-8")
+    print(f"已生成: {out}")
 
 
 if __name__ == "__main__":
