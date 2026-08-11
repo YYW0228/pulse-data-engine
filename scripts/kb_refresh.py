@@ -26,6 +26,7 @@ import shutil
 import subprocess
 import sys
 import time
+import os
 from pathlib import Path
 
 INTEL_SRC = Path.home() / "projects" / "china-ai-governance" / "reports"
@@ -84,9 +85,13 @@ def _scraper_interpreter() -> str:
     """
     import shutil
 
+    dap_root = os.environ.get('DAP_ROOT', '')
+    dap_python = Path(dap_root) / '.venv' / 'bin' / 'python' if dap_root else None
+
     candidates = [
         "/usr/bin/python3",
         "/usr/local/lib/hermes-agent/venv/bin/python3",
+        *( [str(dap_python)] if dap_python and dap_python.exists() else [] ),
         shutil.which("python3") or "",
     ]
     failures: list[str] = []
