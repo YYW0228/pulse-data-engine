@@ -22,13 +22,12 @@ agent_bus.py — Agent 间通信朴素实现 (VAS harness 层)
 
 from __future__ import annotations
 
+import datetime
 import json
-import os
 import time
 import uuid
-import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 
 class AgentBus:
@@ -66,7 +65,7 @@ class AgentBus:
             "metadata": metadata or {},
             "timestamp": int(time.time() * 1000),
         }
-        today = datetime.date.today().isoformat()
+        today = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
         log_file = self.log_dir / f"{today}.jsonl"
         with open(log_file, "a", encoding="utf-8") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
@@ -155,7 +154,7 @@ class AgentBus:
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2))
         return path
 
-    def artifact_get(self, kind: str, name: str) -> Optional[dict]:
+    def artifact_get(self, kind: str, name: str) -> dict | None:
         path = self.artifact_dir / kind / f"{name}.json"
         if not path.exists():
             return None
@@ -186,7 +185,7 @@ class AgentBus:
         }
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2))
 
-    def context_get(self, key: str) -> Optional[Any]:
+    def context_get(self, key: str) -> Any | None:
         path = self.context_dir / f"{key}.json"
         if not path.exists():
             return None
@@ -268,7 +267,7 @@ def demo():
 
     print("5. 任务依赖")
     t1 = bus.task_create("设计 schema", owner="dev")
-    t2 = bus.task_create("实现 RAG", owner="dev", depends_on=[t1])
+    bus.task_create("实现 RAG", owner="dev", depends_on=[t1])
     bus.task_update(t1, status="done")
     tasks = bus.task_list()
     for t in tasks:

@@ -40,21 +40,20 @@ def test_scraper_interpreter_dap_venv(venv_tree):
     """DAP_ROOT 设置时, .venv/bin/python 应在 candidates 中且被返回"""
     dap_root, venv_python = venv_tree
 
-    with patch.dict(os.environ, {"DAP_ROOT": str(dap_root)}, clear=True):
-        with patch(
-            "scripts.kb_refresh.subprocess.run",
-            side_effect=_make_run(str(venv_python)),
-        ):
-            result = _scraper_interpreter()
-            assert result == str(venv_python), (
-                f"Expected DAP python {venv_python}, got {result}"
-            )
+    with patch.dict(os.environ, {"DAP_ROOT": str(dap_root)}, clear=True), patch(
+        "scripts.kb_refresh.subprocess.run",
+        side_effect=_make_run(str(venv_python)),
+    ):
+        result = _scraper_interpreter()
+        assert result == str(venv_python), (
+            f"Expected DAP python {venv_python}, got {result}"
+        )
 
 
 def test_scraper_interpreter_no_dap_root():
     """DAP_ROOT 未设置时不影响原有行为 — 函数不崩溃, 返回字符串"""
-    with patch.dict(os.environ, {}, clear=True):
-        with patch("scripts.kb_refresh.subprocess.run") as mock_run:
+    with patch.dict(os.environ, {}, clear=True), \
+            patch("scripts.kb_refresh.subprocess.run") as mock_run:
             mock_result = MagicMock()
             mock_result.returncode = 0
             mock_result.stderr = b""
@@ -69,8 +68,8 @@ def test_scraper_interpreter_no_dap_root():
 
 def test_scraper_interpreter_fallback_to_sys_executable():
     """所有候选都失败时, 兜底返回 sys.executable"""
-    with patch.dict(os.environ, {}, clear=True):
-        with patch("scripts.kb_refresh.subprocess.run") as mock_run:
+    with patch.dict(os.environ, {}, clear=True), \
+            patch("scripts.kb_refresh.subprocess.run") as mock_run:
             mock_result = MagicMock()
             mock_result.returncode = 1  # 全部失败
             mock_result.stderr = b"import error"

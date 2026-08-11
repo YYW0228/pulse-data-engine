@@ -555,7 +555,8 @@ def _gap_note(answer_text: str, chunks: list[dict] | None) -> str:
         for c in chunks:
             fa = c.get("fetched_at", "")
             if fa:
-                age_days = (datetime.now()
+                from datetime import timezone as _tz
+                age_days = (datetime.now(_tz.utc)
                             - datetime.fromisoformat(fa)).days
                 if age_days > 90:
                     stale_docs[c["doc"]] = f"{age_days} 天前"

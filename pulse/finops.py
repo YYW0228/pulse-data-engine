@@ -16,10 +16,9 @@ from __future__ import annotations
 
 import copy
 import json
-import math
 import urllib.request
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any
 
 # ═══════════════════════════════════════════════════════════════════
 # money.py — 金额处理
@@ -77,7 +76,7 @@ def estimate_costs_from_usage(
     usage: list[dict],
     models: list[dict],
     company_id: str,
-    source: Optional[str] = None,
+    source: str | None = None,
 ) -> list[dict]:
     """usage 条目按 (provider, sku/model, metric, unit) 匹配价目表, 估算成本
 
@@ -162,7 +161,7 @@ def _summarize_groups(costs: list[dict], revenue: list[dict], key_for) -> list[d
     return result
 
 
-def _ensure_group(groups: dict, key: str, company_id: str, product_id: Optional[str], currency: str) -> dict:
+def _ensure_group(groups: dict, key: str, company_id: str, product_id: str | None, currency: str) -> dict:
     if key not in groups:
         groups[key] = {
             "companyId": company_id, "productId": product_id, "currency": currency,
@@ -277,7 +276,7 @@ def refresh_provider_pricing(
     return registry
 
 
-def _parse_price_str(value) -> Optional[float]:
+def _parse_price_str(value) -> float | None:
     """'0.00000175' → 0.00000175; '' / None → None"""
     if value is None or value == "":
         return None

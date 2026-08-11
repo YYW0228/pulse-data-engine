@@ -18,7 +18,7 @@ import json
 import re
 import subprocess
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 DAP_ROOT = Path.home() / "projects" / "data-acquisition-pipeline"
@@ -40,7 +40,7 @@ BIG_VS = {
 SIGNAL_RE = re.compile(
     r"harness|agent|wanman|vibe|开发|工程|产品|代码|sandbank|chatben|tuwa|"
     r"codex|claude|github|git|编程|startup|yc|openai|llm|模型|训练|推理|"
-    r"api|cloud|deploy|ship|发布|开源|open.?source|脑|brain|记忆|memory", re.I)
+    r"api|cloud|deploy|ship|发布|开源|open.?source|脑|brain|记忆|memory", re.IGNORECASE)
 
 
 def fetch_handle(handle: str, limit: int = 20) -> list[dict]:
@@ -65,7 +65,7 @@ def clean_text(raw: str) -> str:
     t = re.sub(r"^@\w+(?=\d|\w{3})", "", raw)  # 去 @handle+时间 前缀
     t = re.sub(r"\d{2}:\d{2}.*$", "", t)  # 去视频时长
     t = re.sub(r"(Log in or sign up|Continue with|Scan to get|Terms·Privacy|© 2026).*$",
-               "", t, flags=re.S)
+               "", t, flags=re.DOTALL)
     t = re.sub(r"\s*\d{2,}K?\s*$", "", t)  # 去尾部浏览数
     return t.strip()
 
@@ -74,7 +74,7 @@ def build_report(handle: str, meta: tuple, tweets: list[dict]) -> str:
     domain, reason = meta
     lines = [
         f"# X 信号: @{handle} ({domain})",
-        f"> 来源: x.com/{handle} | 采集: dap L4 登录态 | {datetime.now():%Y-%m-%d %H:%M}",
+        f"> 来源: x.com/{handle} | 采集: dap L4 登录态 | {datetime.now(timezone.utc):%Y-%m-%d %H:%M}",
         f"> 关注理由: {reason}",
         "",
     ]
@@ -131,7 +131,7 @@ def main():
         return 0
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    date_str = datetime.now().strftime("%Y-%m-%d")
+    date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     out_file = OUT_DIR / f"x-intel-{date_str}.md"
     all_lines: list[str] = []
     total = 0

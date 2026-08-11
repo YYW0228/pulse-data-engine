@@ -163,7 +163,8 @@ def index_docs(source: Path, rebuild: bool = False, include_jsonl: bool = False,
         contents = [b["content"] for b in blocks]
         vecs = model.encode(contents, normalize_embeddings=True)
         import datetime as _dt
-        fetched_at = _dt.datetime.fromtimestamp(f.stat().st_mtime).isoformat()
+        fetched_at = _dt.datetime.fromtimestamp(
+            f.stat().st_mtime, tz=_dt.timezone.utc).isoformat()
         for b, vec in zip(blocks, vecs):
             total_chunks += 1
             total_chars += len(b["content"])

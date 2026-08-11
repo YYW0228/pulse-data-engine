@@ -96,9 +96,10 @@ def test_consistency_default_compat():
 
 def test_dag_state_persisted():
     """DAG 运行状态应写入 DuckDB (临时 DB, 避免与 8501 服务锁冲突)"""
-    import duckdb
     import tempfile
     from pathlib import Path
+
+    import duckdb
 
     duckdb.connect(":memory:")
     with tempfile.TemporaryDirectory() as tmp:
@@ -138,8 +139,8 @@ def test_lock_conflict_error_message():
             )
 
         # (2) consistency='none' → 原样抛出 duckdb.IOException
-        with patch("duckdb.connect", side_effect=duckdb.IOException("Write lock")):
-            with pytest.raises(duckdb.IOException, match="Write lock"):
+        with patch("duckdb.connect", side_effect=duckdb.IOException("Write lock")), \
+                pytest.raises(duckdb.IOException, match="Write lock"):
                 DAG(name="test_lock", db_path=db_path, consistency="none")
     finally:
         if os.path.exists(db_path):

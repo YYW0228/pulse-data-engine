@@ -48,11 +48,11 @@ def _load_finops():
 def run_scan(platform: str | None = None, mock_only: bool = False, finops_report: bool = False):
     """执行一轮扫描: 采集 → 评分 → L1 分析 → 写库 → (finops 成本)"""
     from pulse.extractors.boom import (
+        L1Analyzer,
         collect_posts,
         compute_baseline,
         freeze_evidence,
         list_creators,
-        L1Analyzer,
     )
     from pulse.pipelines.boom_pipeline import BoomPipeline
 
@@ -166,7 +166,6 @@ def run_scan(platform: str | None = None, mock_only: bool = False, finops_report
                 for i in range(l1_calls)
             ]
             costs = finops.estimate_costs_from_usage(usage, models, "starTalent")
-            summary = finops.summarize_finops(costs, [], "starTalent")
             total_cost = finops.round_money(sum(c["amount"] for c in costs))
             logger.info(f"💰 本次扫描 L1 成本: {total_cost} CNY "
                         f"({l1_calls} 次分析 × 估算 {L1_INPUT_TOKENS}+{L1_OUTPUT_TOKENS} tokens)")

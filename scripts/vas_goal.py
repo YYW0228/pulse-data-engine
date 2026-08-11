@@ -22,15 +22,11 @@ import argparse
 import json
 import os
 import re
-import shutil
 import subprocess
 import sys
 import time
-import uuid
 from dataclasses import dataclass, field
-from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 # ═══════════════════════════════════════════════════════════════════
 # 数据结构
@@ -55,7 +51,7 @@ class GoalResult:
     repo: Path
     steps: list[GoalStep]
     started_at: float
-    finished_at: Optional[float] = None
+    finished_at: float | None = None
     engine: str = "hermes"
     commits: list[str] = field(default_factory=list)
     files_changed: list[str] = field(default_factory=list)
@@ -100,7 +96,6 @@ def repo_snapshot(repo: Path) -> str:
         depth = root[len(str(repo)):].count(os.sep)
         if depth > 3:
             continue
-        rel = os.path.relpath(root, repo)
         indent = "  " * depth
         name = os.path.basename(root) if depth > 0 else "."
         lines.append(f"{indent}{name}/")
@@ -367,7 +362,7 @@ def _coverage_omit_check(repo: Path) -> str:
         return ""
     import re as _re
     text = pyproject.read_text(encoding="utf-8")
-    m = _re.search(r"\[tool\.coverage\.run\](.*?)(?=\n\[|$)", text, _re.S)
+    m = _re.search(r"\[tool\.coverage\.run\](.*?)(?=\n\[|$)", text, _re.DOTALL)
     if not m:
         return ""
     omit = m.group(1)

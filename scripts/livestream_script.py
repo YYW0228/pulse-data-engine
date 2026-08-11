@@ -121,7 +121,7 @@ def main():
     )
     args = parser.parse_args()
 
-    date_str = args.date or datetime.date.today().isoformat()
+    date_str = args.date or datetime.datetime.now(datetime.timezone.utc).date().isoformat()
     out = args.out or (project_root / "data" / "livestream" / f"{date_str}.md")
 
     signals = load_signals(args.db)
