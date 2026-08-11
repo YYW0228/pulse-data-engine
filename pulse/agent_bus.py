@@ -74,7 +74,7 @@ class AgentBus:
     def export_oplog(self, agent: str | None = None,
                      since: str | None = None) -> list[dict]:
         """导出审计日志。agent 过滤操作主体; since: ISO 日期 (含)。"""
-        entries = []
+        entries: list[dict] = []
         for f in sorted(self.log_dir.glob("*.jsonl")):
             if since and f.stem < since:
                 continue
@@ -232,7 +232,7 @@ class AgentBus:
         path.write_text(json.dumps(task, ensure_ascii=False, indent=2))
 
     def task_list(self, status: str | None = None) -> list[dict]:
-        tasks = []
+        tasks: list[dict] = []
         tasks_dir = self.context_dir.parent / "tasks"
         if not tasks_dir.exists():
             return tasks

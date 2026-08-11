@@ -249,7 +249,7 @@ def refresh_provider_pricing(
             req = urllib.request.Request(OPENROUTER_MODELS_URL, headers={"User-Agent": "finops/1.0"})
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
-            entries = []
+            entries: list[dict] = []
             for model in data.get("data", [])[:openrouter_model_limit]:
                 pricing = model.get("pricing") or {}
                 model_id = model.get("id", "")
