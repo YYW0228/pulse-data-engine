@@ -325,6 +325,17 @@ def _is_valid_shell_gate(gate: str) -> bool:
     return first in known
 
 
+def _normalize_gate_for_uv(gate: str, repo: Path) -> str:
+    """uv 项目 (pyproject.toml 存在): python/pytest 前缀命令自动加 uv run (2026-08-12 VAS 实战教训:
+    agent 生成 verify_gate 用裸 python3.14 无 pytest → 验证假失败)"""
+    if not (repo / "pyproject.toml").exists():
+        return gate
+    first = gate.split()[0]
+    if first in ("python", "python3", "pytest") or first.startswith("python3."):
+        return "uv run " + gate
+    return gate
+
+
 def verify_step(step: GoalStep, repo: Path) -> tuple[bool, str]:
     """验证单步完成质量 (Pattern 12 verification gate)"""
     gate = step.verify_gate.strip()
@@ -336,7 +347,8 @@ def verify_step(step: GoalStep, repo: Path) -> tuple[bool, str]:
         if rc == 0 and out.strip():
             return True, "文件有改动 (无有效 gate)"
         return False, "无有效 gate 且无文件改动"
-    # 有有效 gate: 运行验证命令
+    # 有有效 gate: 运行验证命令 (uv 项目自动加 uv run 前缀)
+    gate = _normalize_gate_for_uv(gate, repo)
     rc, out = run_cmd(["bash", "-c", gate], cwd=repo, timeout=120)
     if rc == 0:
         return True, out.strip()[-300:]

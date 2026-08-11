@@ -44,3 +44,4 @@ pulse/data/*.duckdb
 .DS_Store
 Thumbs.db
 .gstack/
+*.egg-info/
