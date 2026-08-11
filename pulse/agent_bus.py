@@ -161,7 +161,7 @@ class AgentBus:
         return json.loads(path.read_text())
 
     def artifact_list(self, kind: str | None = None) -> list[dict]:
-        results = []
+        results: list[dict] = []
         search_dir = self.artifact_dir / kind if kind else self.artifact_dir
         if not search_dir.exists():
             return results

@@ -8,8 +8,11 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 spec = importlib.util.spec_from_file_location("pulse_finops", ROOT / "pulse" / "finops.py")
+if spec is None or spec.loader is None:
+    raise ImportError("cannot load finops.py")
+loader = spec.loader
 mod = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(mod)
+loader.exec_module(mod)
 
 
 def test_money():
