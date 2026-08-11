@@ -369,6 +369,41 @@ def render_plan_md(result: GoalResult, workdir: Path) -> Path:
     return path
 
 
+def render_feature_list(result: GoalResult, workdir: Path) -> Path:
+    """渲染 feature_list.json (吞噬 Anthropic long-running agents 模式).
+
+    结构化 JSON 功能清单 — Anthropic 实测: 模型不易篡改 JSON vs Markdown.
+    每次会话开局读取: 选最高优先未完成 feature, 只改 passes 字段.
+    """
+    import json
+
+    features = []
+    for s in result.steps:
+        features.append({
+            "id": s.id,
+            "title": s.title,
+            "type": s.step_type,
+            "status": "done" if s.status == "completed" else (
+                "blocked" if s.status == "blocked" else "pending"),
+            "passes": s.status == "completed",
+            "gate": s.verify_gate or "",
+            "summary": "",
+        })
+    doc = {
+        "goal": result.goal,
+        "rules": [
+            "It is unacceptable to remove or edit tests — this could lead to missing or buggy functionality.",
+            "Only change the passes field of a feature when it has been verified end-to-end.",
+            "Work on ONE feature at a time. Never declare victory on the whole project early.",
+            "Leave the environment clean: commit progress to git with descriptive messages and update the progress file.",
+        ],
+        "features": features,
+    }
+    path = workdir / "feature_list.json"
+    path.write_text(json.dumps(doc, ensure_ascii=False, indent=2))
+    return path
+
+
 # ═══════════════════════════════════════════════════════════════════
 # 主流程
 # ═══════════════════════════════════════════════════════════════════
@@ -425,7 +460,9 @@ def main():
     for s in result.steps:
         print(f"   {s.id}: {s.title} [{s.step_type}]")
     plan_path = render_plan_md(result, workdir)
+    fl_path = render_feature_list(result, workdir)
     print(f"📄 plan.md: {plan_path}")
+    print(f"📋 feature_list.json: {fl_path} (Anthropic long-running harness 模式)")
 
     if args.dry_run:
         print("\n🔍 dry-run 模式: 不执行")
@@ -437,6 +474,7 @@ def main():
         while step.status != "completed" and step.retries <= args.max_retries:
             step.status = "in_progress"
             render_plan_md(result, workdir)
+            render_feature_list(result, workdir)
             print(f"\n▶ {step.id}: {step.title} (retry {step.retries}/{args.max_retries})")
 
             # 执行
@@ -455,6 +493,7 @@ def main():
             if ok:
                 step.status = "completed"
                 render_plan_md(result, workdir)
+                render_feature_list(result, workdir)
                 print(f"  ✅ 验证通过: {vout[:120]}")
                 break
             else:
