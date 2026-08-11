@@ -31,6 +31,7 @@ from pathlib import Path
 
 INTEL_SRC = Path.home() / "projects" / "china-ai-governance" / "reports"
 INTEL_DST = Path(__file__).resolve().parent.parent / "data" / "scene2_intel"
+X_INTEL_SRC = Path(__file__).resolve().parent.parent / "data" / "intel_knowledge"  # dap x 采集产物
 MARKET_SRC = Path.home() / "projects" / "pulse-data-engine" / "data" / "market_knowledge"  # job-scraper CI 回流 (Mac runner)
 MARKET_DST = Path(__file__).resolve().parent.parent / "data" / "market_knowledge"
 SCRAPER = Path.home() / "projects" / "china-ai-governance" / "_intel_scraper_v2.py"
@@ -70,6 +71,20 @@ def sync_market_insight() -> tuple[int, list[str]]:
     for src in sorted(MARKET_SRC.glob("market-insight-*.md")):
         if src.name not in existing:
             shutil.copy2(src, MARKET_DST / src.name)
+            added.append(src.name)
+    return len(added), added
+
+
+def sync_x_intel() -> tuple[int, list[str]]:
+    """同步 X 大 V 情报 (dap L4 采集) → scene2_intel (知识库索引)"""
+    INTEL_DST.mkdir(parents=True, exist_ok=True)
+    if not X_INTEL_SRC.exists():
+        return 0, []
+    existing = {p.name for p in INTEL_DST.glob("x-intel-*.md")}
+    added: list[str] = []
+    for src in sorted(X_INTEL_SRC.glob("x-intel-*.md")):
+        if src.name not in existing:
+            shutil.copy2(src, INTEL_DST / src.name)
             added.append(src.name)
     return len(added), added
 
@@ -206,6 +221,9 @@ def main():
     r_added, r_added_names = sync_references()
     result["refs_synced"] = r_added
     result["refs_new"] = r_added_names
+    x_added, x_added_names = sync_x_intel()
+    result["x_intel_synced"] = x_added
+    result["x_intel_new"] = x_added_names
 
     # 3. 增量索引 (情报库 + 市场知识 + references)
     idx = index()
