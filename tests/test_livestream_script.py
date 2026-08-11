@@ -37,6 +37,17 @@ def test_build_script_empty_degrade():
     assert "@" not in out
 
 
+def test_build_script_cta_variants():
+    base = build_script([], "", "2026-08-12")
+    assert "提问力" in base  # 默认 course 变体
+    consult = build_script([], "", "2026-08-12", variant="consult")
+    assert "私信『体检』" in consult and "提问力" not in consult
+    trust = build_script([], "", "2026-08-12", variant="trust")
+    assert "下期专门拆一期" in trust
+    unknown = build_script([], "", "2026-08-12", variant="nope")
+    assert "提问力" in unknown  # 未知变体回退 course
+
+
 def test_load_signals_reads_db(tmp_path):
     import duckdb
 

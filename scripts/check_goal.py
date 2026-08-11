@@ -129,12 +129,12 @@ def main():
     import httpx
 
     try:
-        r = httpx.get("http://localhost:8501", timeout=3)
+        r = httpx.get("http://127.0.0.1:8501", timeout=3)
         dashboard = "✅ 在线" if r.status_code == 200 else "❌ 离线"
     except Exception:
         dashboard = "❌ 离线"
     try:
-        r = httpx.get("http://localhost:9464/metrics", timeout=3)
+        r = httpx.get("http://127.0.0.1:9464/metrics", timeout=3)
         metrics = "✅ 在线" if r.status_code == 200 else "❌ 离线"
     except Exception:
         metrics = "❌ 离线"

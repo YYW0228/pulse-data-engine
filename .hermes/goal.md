@@ -17,17 +17,18 @@
 - [x] Step 1: 定义 Goal Contract 结构 → type:document | verify:passed
 - [x] Step 2: 实现 Goal 校验逻辑 (检查文件状态) → type:code | verify:passed
 - [x] Step 3: 绑定到 session 启动流程 → type:code | verify:passed
-- [ ] Step 4: 验证 Telegram inbox → type:generic | verify:passed
-- [ ] Step 5: 检查 Dashboard/Metrics 状态 → type:generic | verify:passed
+- [x] Step 4: 验证 Telegram inbox → type:generic | verify:passed
+- [x] Step 5: 检查 Dashboard/Metrics 状态 → type:generic | verify:passed
 
 ## State
 goal_contract: completed
-telegram_bridge: pending
-dashboard_live_ready: pending
+telegram_bridge: completed
+dashboard_live_ready: completed
 market_insight: pending
 
-## Pending (Telegram 2026-08-01, 更新 2026-08-05)
-- [ ] 分析 x.com/pluvio9yte/2082386081794961733 — 可借鉴技能 (抓取受限, 需白云手动分享内容)
+## Pending (Telegram 2026-08-01, 更新 2026-08-12)
+- [ ] 分析 x.com/pluvio9yte/2082386081794961733 — 可借鉴技能 (抓取受限, 需白云手动分享内容; browser 需 Chrome 远程调试授权)
+- [x] 吞噬 LLMs-from-scratch (rasbt) → 评估完成, 见 .hermes/llms-from-scratch-devour.md (学习型资产, 不移植)
 - [x] 对标竞品: 企业 AI 落地服务定价/交付模式 → 见 .hermes/ai-harness-service-package.md
 - [x] 设计 "AI 落地 harness" 服务包: demo → 框架 → 培训 漏斗 → 见 .hermes/ai-harness-service-package.md (Tier 0-3)
 - [ ] 定价终稿 + 客户沟通脚本 (Tier 0/1 电销场景)

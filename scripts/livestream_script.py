@@ -22,8 +22,20 @@ logger = logging.getLogger("livestream_script")
 MARKET_DB = Path("data/market_signals.duckdb")
 INSIGHT_DIR = Path("data/insights")
 
-# 结尾固定行动号召段
-CTA = "💡 行动号召: 评论区扣1领取 AI 岗位薪资表, 关注我每天看 AI 人才市场最新信号。"
+# 结尾行动号召段 — 3 个课程转化 CTA 变体 (对应 ai-harness-service-package Tier 0-3 漏斗)
+CTA_VARIANTS = {
+    "course": (
+        "💡 行动号召: 评论区扣『提问』, 领取『AI 时代提问力』四步框架 PDF (定焦→拆解→重构→验证), "
+        "免费, 关注我每天看 AI 人才市场最新信号。"
+    ),
+    "consult": (
+        "💡 行动号召: 如果你正在被 AI 落地难住——选型、部署、合规不知道从哪开始——私信『体检』, "
+        "免费 30 分钟 AI 落地体检, 给你一张『该先做什么』的路线图。"
+    ),
+    "trust": (
+        "💡 行动号召: 评论区留下你最想让我拆解的问题, 我下期专门拆一期。关注我, 每天看 AI 人才市场最新信号。"
+    ),
+}
 
 
 def load_signals(db_path: Path) -> list[dict]:
@@ -65,8 +77,11 @@ def load_insight(insight_dir: Path) -> str:
         return ""
 
 
-def build_script(signals: list[dict], insight_text: str, date_str: str) -> str:
-    """纯字符串拼接生成直播口播脚本 markdown (无 LLM/网络调用)"""
+def build_script(signals: list[dict], insight_text: str, date_str: str, variant: str = "course") -> str:
+    """纯字符串拼接生成直播口播脚本 markdown (无 LLM/网络调用)
+
+    variant ∈ CTA_VARIANTS: course(课程引流) / consult(咨询转化) / trust(信任建立)
+    """
     lines = [f"# 🎙 直播口播脚本 {date_str}", ""]
 
     # 开场引语段: 取 signals 前 3 条, 保持传入顺序
@@ -88,7 +103,7 @@ def build_script(signals: list[dict], insight_text: str, date_str: str) -> str:
 
     # 结尾行动号召段
     lines.append("## 行动号召")
-    lines.append(CTA)
+    lines.append(CTA_VARIANTS.get(variant, CTA_VARIANTS["course"]))
 
     return "\n".join(lines)
 
@@ -119,6 +134,10 @@ def main():
         "--date", default=None,
         help="日期 YYYY-MM-DD (默认: 今天)",
     )
+    parser.add_argument(
+        "--variant", default="course", choices=list(CTA_VARIANTS),
+        help="CTA 变体: course(课程引流) / consult(咨询转化) / trust(信任建立)",
+    )
     args = parser.parse_args()
 
     date_str = args.date or datetime.datetime.now(datetime.timezone.utc).date().isoformat()
@@ -126,7 +145,7 @@ def main():
 
     signals = load_signals(args.db)
     insight_text = load_insight(args.insight_dir)
-    script = build_script(signals, insight_text, date_str)
+    script = build_script(signals, insight_text, date_str, args.variant)
 
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(script, encoding="utf-8")
