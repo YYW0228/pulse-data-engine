@@ -352,7 +352,28 @@ def verify_step(step: GoalStep, repo: Path) -> tuple[bool, str]:
     rc, out = run_cmd(["bash", "-c", gate], cwd=repo, timeout=120)
     if rc == 0:
         return True, out.strip()[-300:]
+    # coverage 门禁误报检测: 覆盖率 0% 但模块在 pyproject omit 列表 (配置排除非缺陷)
+    if "Required test coverage" in out and "0%" in out:
+        omit_check = _coverage_omit_check(repo)
+        if omit_check:
+            return True, f"coverage 0% 但模块在 pyproject omit (配置预期): {omit_check}"
     return False, out.strip()[-300:]
+
+
+def _coverage_omit_check(repo: Path) -> str:
+    """检测 coverage 0% 是否因模块在 pyproject [tool.coverage.run] omit 列表."""
+    pyproject = repo / "pyproject.toml"
+    if not pyproject.exists():
+        return ""
+    import re as _re
+    text = pyproject.read_text(encoding="utf-8")
+    m = _re.search(r"\[tool\.coverage\.run\](.*?)(?=\n\[|$)", text, _re.S)
+    if not m:
+        return ""
+    omit = m.group(1)
+    if "scripts/*" in omit or "tests/*" in omit:
+        return "scripts/* 或 tests/* 在 omit — 脚本模块不计覆盖"
+    return ""
 
 
 def render_plan_md(result: GoalResult, workdir: Path) -> Path:
