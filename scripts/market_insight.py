@@ -13,6 +13,7 @@ import argparse
 import json
 import logging
 import os
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -23,12 +24,41 @@ logger = logging.getLogger("market_insight")
 
 
 def collect_data() -> dict:
-    """从 Pulse DuckDB 提取市场数据"""
+    """从 Pulse DuckDB 提取市场数据 (8501 持锁时降级: 只用 X 信号)"""
     db = Path("data/jobs.duckdb")
+    signals: list[dict] = []
+    ms_db = Path("data/market_signals.duckdb")
+    if ms_db.exists():
+        try:
+            ms = duckdb.connect(str(ms_db))
+            signals = [
+                {"handle": r[0], "domain": r[1], "text": r[2]}
+                for r in ms.execute(
+                    "SELECT handle, domain, signal_text FROM market_signals "
+                    "ORDER BY fetched_at DESC LIMIT 10").fetchall()
+            ]
+            ms.close()
+        except Exception:
+            pass
+
     if not db.exists():
         raise FileNotFoundError(f"数据库不存在: {db}")
 
-    con = duckdb.connect(str(db))
+    try:
+        con = duckdb.connect(str(db), read_only=True)
+    except Exception:
+        # 8501 持写锁 → 降级: 只返回 X 信号 (不阻断直播素材生成)
+        print("⚠️ jobs.duckdb 被服务持有锁 — 降级为 X 信号模式", file=sys.stderr)
+        return {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "overview": {"total_ods": 0, "dwd": 0, "dlq": 0},
+            "sources": [],
+            "skills": [],
+            "cities": [],
+            "top_jobs": [],
+            "signals": signals,
+            "degraded": True,
+        }
 
     # DWS 技能聚合
     skills = con.execute("""
@@ -70,6 +100,8 @@ def collect_data() -> dict:
         "skills": skills.to_dict("records"),
         "cities": cities.to_dict("records"),
         "top_jobs": top_jobs.to_dict("records"),
+        "signals": signals,
+        "degraded": False,
     }
 
 
@@ -89,6 +121,12 @@ def generate_prompt(data: dict) -> str:
         f"- {j['job_title'][:30]}: ¥{int(j['salary_max_k'])}k @ {j['city']} ({j['source']})"
         for j in data["top_jobs"]
     )
+    # X 大 V 信号 (gbrain/x 情报管道产物)
+    signals = data.get("signals", [])
+    signal_text = "\n".join(
+        f"- @{s['handle']} ({s['domain']}): {s['text'][:120]}"
+        for s in signals[:8]
+    ) if signals else "(暂无大 V 信号)"
 
     return f"""你是一个 AI 人才市场分析师。基于以下实时数据，生成一段直播可用的市场洞察报告。
 要求: 口语化, 数据驱动, 有结论和建议, 适合在直播间朗读(200-400字)。
@@ -106,10 +144,14 @@ def generate_prompt(data: dict) -> str:
 ### 最高薪岗位
 {top_text}
 
+### X 大 V 信号 (行业领袖观点, 可作直播引语)
+{signal_text}
+
 请输出:
 1. 一句话总结当前市场状态
 2. 3个关键洞察 (每个含数据支撑)
-3. 对求职者的建议"""
+3. 对求职者的建议
+4. 如大 V 信号与市场数据相关, 引用一条作为开场引语 (注明来源 @handle)"""
 
 
 def call_llm(prompt: str) -> str:

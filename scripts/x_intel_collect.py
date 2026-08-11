@@ -23,6 +23,7 @@ from pathlib import Path
 
 DAP_ROOT = Path.home() / "projects" / "data-acquisition-pipeline"
 OUT_DIR = Path.home() / "projects" / "pulse-data-engine" / "data" / "intel_knowledge"
+MARKET_DB = Path.home() / "projects" / "pulse-data-engine" / "data" / "market_signals.duckdb"
 
 # 大 V 清单: handle → (领域, 关注理由)
 BIG_VS = {
@@ -92,6 +93,30 @@ def build_report(handle: str, meta: tuple, tweets: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def save_to_market_db(signals: list[dict]) -> int:
+    """大 V 信号写入 market_signals 表 (与 DWS 同仓, 供市场洞察/直播消费).
+
+    表: market_signals (handle, domain, signal_text, fetched_at)
+    """
+    import duckdb
+    if not MARKET_DB.exists():
+        return 0
+    con = duckdb.connect(str(MARKET_DB))
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS market_signals (
+            handle VARCHAR, domain VARCHAR, signal_text VARCHAR,
+            fetched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )""")
+    n = 0
+    for s in signals:
+        con.execute(
+            "INSERT INTO market_signals (handle, domain, signal_text) VALUES (?,?,?)",
+            [s["handle"], s["domain"], s["text"]])
+        n += 1
+    con.close()
+    return n
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--handles", default="", help="逗号分隔, 覆盖默认清单")
@@ -110,6 +135,7 @@ def main():
     out_file = OUT_DIR / f"x-intel-{date_str}.md"
     all_lines: list[str] = []
     total = 0
+    all_signals: list[dict] = []
     for h in handles:
         if h not in BIG_VS:
             print(f"⚠️ 未知 handle {h}, 跳过 (加入 BIG_VS 清单)")
@@ -120,9 +146,21 @@ def main():
             if report:
                 all_lines.append(report)
                 total += 1
+            # 收集市场信号 (去重清洗后的开发信号)
+            for t in tweets:
+                text = clean_text(t["text"])
+                if len(text) >= 30 and SIGNAL_RE.search(text):
+                    all_signals.append({"handle": h, "domain": BIG_VS[h][0],
+                                        "text": text[:400]})
             print(f"✓ @{h}: {len(tweets)} 推文 → {len(report.splitlines()) if report else 0} 行报告")
         except Exception as e:
             print(f"✗ @{h}: {e}")
+
+    # 市场信号入库 (market_signals 表, 与 DWS 同仓)
+    market_n = 0
+    if all_signals:
+        market_n = save_to_market_db(all_signals)
+        print(f"→ 市场信号入库: {market_n} 条 → market_signals (market_signals.duckdb)")
 
     if not all_lines:
         print("无信号产出 (所有大 V 无开发内容或采集失败)")
