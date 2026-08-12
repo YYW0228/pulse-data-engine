@@ -31,5 +31,5 @@ market_insight: pending
 - [x] 吞噬 LLMs-from-scratch (rasbt) → 评估完成, 见 .hermes/llms-from-scratch-devour.md (学习型资产, 不移植)
 - [x] 对标竞品: 企业 AI 落地服务定价/交付模式 → 见 .hermes/ai-harness-service-package.md
 - [x] 设计 "AI 落地 harness" 服务包: demo → 框架 → 培训 漏斗 → 见 .hermes/ai-harness-service-package.md (Tier 0-3)
-- [ ] 定价终稿 + 客户沟通脚本 (Tier 0/1 电销场景)
+- [x] 定价终稿 + 客户沟通脚本 (Tier 0/1 电销场景) → 见 .hermes/pricing-and-outreach.md (锚点/底线/5步脚本/5异议/跟进节奏)
 - [ ] 寻找 1 个 pilot 客户验证 Tier 1 交付链路
