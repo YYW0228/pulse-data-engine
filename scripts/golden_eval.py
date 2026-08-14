@@ -28,6 +28,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -39,7 +40,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 # 修复 torch dlopen 偶发崩: torch 2.6.0 cp310 wheel 链接 3.11+ 符号,
 # flat namespace 下能否解析取决于进程先加载的库。函数内才 import 时
 # 加载顺序不同 → symbol not found。模块级提前 import 稳定了顺序。
-import compliance_qa  # noqa: F401
+from scripts import compliance_qa  # noqa: F401
 
 # ── Eval 模式环境 (2026-08-14 AR 试点) ───────────────────────────────
 # 1. 熔断关闭: 循环熔断是防死循环设计, eval 是有界批量调用 (samples=2 同 query
@@ -69,6 +70,10 @@ def evaluate_question(q: dict, top_k: int = 5, samples: int = 2) -> dict:
     # scripts.compliance_qa 双模块状态干扰 (偶发 0ms ERR: 模型/组件状态不一致)
     from scripts.compliance_qa import answer
 
+    # 期望词归一化匹配: 去空白后匹配 ("72小时" 匹配 "72 小时" — 中文数字单位常带空格)
+    def _norm(s: str) -> str:
+        return re.sub(r"\s+", "", s)
+
     question = q["question"]
     expects = q["expect"]
 
@@ -91,7 +96,7 @@ def evaluate_question(q: dict, top_k: int = 5, samples: int = 2) -> dict:
         if resp is None:
             resp = f"ERROR: {last_err}"
         ms = (time.time() - t0) * 1000
-        covered = [e for e in expects if e in resp] if success else []
+        covered = [e for e in expects if _norm(e) in _norm(resp)] if success else []
         hit_rate = len(covered) / len(expects) if expects else 0
         if success and hit_rate > best["hit_rate"]:
             best = {
