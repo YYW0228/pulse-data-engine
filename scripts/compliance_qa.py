@@ -205,18 +205,52 @@ def _dump_large_chunk(doc: str, title: str, content: str) -> str:
 MMR_LAMBDA = 0.8          # MMR 多样性权重 (0.8 = 更贴题, A/B 通过 2026-08-10)
 USE_PARALLEL = False       # 并行检索开关 (优先级 B: 复杂查询走进程隔离子任务; A/B 提案目标)
 
-# ── Embedding 模型缓存 (全局单例) ────────────────────────────────────
-_model = None
+# ── Embedding 模型缓存 (受管组件: 身份注册 + 热替换 + 审计) ──────────────
+# 原全局单例 _model 升级为 ManagedComponent: 换模型不再需要改代码重启,
+# swap 记录进审计流 (component/swap), 自演化场景可追溯"这次替换改了什么"。
+_embedder = None  # 懒初始化 (模块导入时不加载模型)
+
+
+def _embedder_component():
+    from sentence_transformers import SentenceTransformer
+
+    from pulse.component import ManagedComponent
+
+    def _build() -> SentenceTransformer:
+        return SentenceTransformer("BAAI/bge-small-zh-v1.5")
+
+    return ManagedComponent(name="embedding.bge-small-zh", factory=_build)
 
 
 def get_model():
-    """懒加载 + 缓存 embedding 模型 (避免每次查询重新加载)"""
-    global _model
-    if _model is None:
-        from sentence_transformers import SentenceTransformer
+    """懒加载 + 缓存 embedding 模型 (受管组件: 每次 get 拿当前实例)"""
+    global _embedder
+    if _embedder is None:
+        _embedder = _embedder_component()
+    return _embedder.get()
 
-        _model = SentenceTransformer("BAAI/bge-small-zh-v1.5")
-    return _model
+
+def swap_embedder(model_name: str, source: str = "manual") -> tuple:
+    """热替换 embedding 模型: build → 原子换引用 → 审计记录。
+
+    返回 (old, new); old 排空在途请求后由 gc 回收。模型加载失败 → 抛异常,
+    旧实例保持不动 (失败隔离)。source 标注替换发起方 (manual/agent/proposal)。
+    """
+    global _embedder
+    from sentence_transformers import SentenceTransformer
+
+    from pulse.llm_audit import audit_component_swap
+
+    if _embedder is None:
+        _embedder = _embedder_component()
+    old, new = _embedder.swap(lambda: SentenceTransformer(model_name))
+    audit_component_swap(
+        component=_embedder.name,
+        old_desc=getattr(old, "_model_name", None) or "none",
+        new_desc=model_name,
+        source=source,
+    )
+    return old, new
 
 
 def retrieve(query: str, top_k: int = 5) -> list[dict]:

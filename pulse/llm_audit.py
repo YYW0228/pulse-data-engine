@@ -128,6 +128,24 @@ def audit_compaction_end(compaction_id: str, ok: bool, error: str | None = None)
     })
 
 
+def audit_component_swap(component: str, old_desc: str, new_desc: str,
+                         source: str = "manual") -> None:
+    """组件热替换审计: 记录替换前后身份 (Cordis 自演化场景的证据链挂钩)。
+
+    没有这条记录, "这次替换到底改了什么"不可证明; 有它, 模型换后端/
+    换模型/换权限的行为全部可追溯, 与 model-visible=logged 同链。
+    """
+    _append({
+        "kind": "component/swap",
+        "ts": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "ts_epoch": time.time(),
+        "component": component,
+        "old": old_desc,
+        "new": new_desc,
+        "source": source,
+    })
+
+
 @dataclass
 class CompactionRecord:
     """统一压缩入口的返回: 压缩后消息 + 折叠元数据 + 审计配对 id。"""

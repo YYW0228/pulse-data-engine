@@ -32,7 +32,10 @@ def test_should_parallel_customer_db():
 
 def test_retrieve_global_returns_rows():
     """全局库检索 (真实库, 只验证函数契约) — 需 embedding 模型"""
-    pytest.importorskip("sentence_transformers", reason="需要 ml 组依赖")
+    try:
+        import sentence_transformers  # noqa: F401
+    except Exception as exc:
+        pytest.skip(f"ml 依赖不可用 (torch ABI 环境问题): {exc}")
     from scripts.parallel import _global_db, _retrieve_global
 
     rows = _retrieve_global("算法备案", 3, _global_db())
