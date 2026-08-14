@@ -221,6 +221,9 @@ def audited_post(
             isinstance(m.get("content"), str) and m["content"].strip() for m in messages
         ),
     }
+    # eval 批量评测标记: 循环检测/熔断排除 (eval 合法重复同 query)
+    if os.environ.get("LLM_AUDIT_EVAL") == "1":
+        body["eval"] = True
     _fuse_check(source, body["prompt_hash"])   # 熔断在落盘前: 拒绝的调用不产生记录
     _append({"kind": "request", **body})
 

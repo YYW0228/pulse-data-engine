@@ -144,6 +144,19 @@ STRUCTURAL_VARIANTS = {
         "tests": ["相似 query 条目合并 → consolidated+1", "陈旧低引用条目淘汰 → filtered+1", "回答行为不变 (引用率/耗时不劣化)"],
         "threshold": {"min_citation_delta": 0.0, "max_ms_increase_pct": 10},
     },
+    "embedder_hot_swap": {
+        "pattern": "hot_swap_embedding",
+        "action": "swap_embedder",
+        "mechanism": "热替换 embedding 模型 (ManagedComponent swap: build → 原子换引用 → drain; 失败回滚旧实例)。不重启进程, 替换记录进审计流 (component/swap, source=harness_evolve.apply)",
+        "insert_point": "cmd_apply: action=swap_embedder 分支 → compliance_qa.swap_embedder(model_name)",
+        "pseudocode": """
+            # 提案字段: {"action": "swap_embedder", "model_name": "BAAI/xxx"}
+            old, new = swap_embedder(model_name, source="harness_evolve.apply")
+        """,
+        "prediction": "embedding 检索质量不降 (A/B 命中率/引用率) + component/swap 审计事件 +1; 新模型加载失败 → 回滚旧模型, 服务不中断",
+        "tests": ["swap 后 get_model() 返回新实例", "加载失败回滚旧实例", "component/swap 审计事件可查", "A/B 检索命中率不降"],
+        "threshold": {"min_citation_delta": 0.0, "max_ms_increase_pct": 20},
+    },
 }
 
 
@@ -564,6 +577,26 @@ def cmd_apply(args) -> int:
     if prop.get("status") != "passed":
         print(f"❌ 提案未通过评估 (status={prop.get('status')}), 不落地")
         return 1
+
+    # 动作型提案 (热替换等): 不修改源码, 调用运行时原语 + 审计
+    action = prop.get("action")
+    if action == "swap_embedder":
+        model_name = prop.get("model_name", "BAAI/bge-small-zh-v1.5")
+        try:
+            from scripts.compliance_qa import swap_embedder
+
+            old, _new = swap_embedder(model_name, source="harness_evolve.apply")
+            old_desc = getattr(old, "_model_name", None) or "none"
+            print(f"  ✅ 热替换 embedding: {old_desc} → {model_name} (component/swap 已审计)")
+        except Exception as exc:
+            print(f"  ❌ 热替换失败 (已回滚旧模型): {exc}")
+            return 1
+        prop["status"] = "applied"
+        prop["applied_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+        lines = [json.dumps(p, ensure_ascii=False) for p in proposals]
+        PROPOSALS.write_text("\n".join(lines) + "\n")
+        print(f"→ 已落地 {args.proposal} (运行时动作, 源码未改)")
+        return 0
 
     qa_text = QA_SRC.read_text()
     for k, v in prop.get("params", {}).items():

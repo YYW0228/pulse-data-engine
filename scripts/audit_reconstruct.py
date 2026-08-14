@@ -75,9 +75,11 @@ def reconstructable(e: dict) -> tuple[bool, list[str]]:
 
 
 def find_loops(requests: list[dict]) -> list[dict]:
-    """10 分钟窗口内同 source+hash >=3 次的疑似循环。"""
+    """10 分钟窗口内同 source+hash >=3 次的疑似循环 (eval 标记记录排除)。"""
     by_key: dict[tuple[str, str], list[float]] = defaultdict(list)
     for r in requests:
+        if r.get("eval"):
+            continue                          # eval 批量评测 = 合法重复, 非死循环
         by_key[(r.get("source", "?"), r.get("prompt_hash", "?"))].append(r.get("ts_epoch") or 0)
     loops = []
     for (source, h), stamps in by_key.items():

@@ -49,6 +49,7 @@ from scripts import compliance_qa  # noqa: F401
 #    `python -m scripts.golden_eval` 包模式会触发 torch dlopen ABI 崩
 #    (py3.10 venv + torch 2.6, _PyCode_GetVarnames 符号缺失)。
 os.environ["LLM_AUDIT_FUSE"] = "off"
+os.environ["LLM_AUDIT_EVAL"] = "1"   # 审计打 eval 标记: 循环检测/告警排除批量评测
 
 GOLDEN_SET = Path(__file__).resolve().parent.parent / "data" / "golden_set.json"
 PASS_THRESHOLD = 0.8
@@ -127,18 +128,20 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--quick", action="store_true", help="只跑前 10 题")
     parser.add_argument("--json", action="store_true")
+    parser.add_argument("--samples", type=int, default=2,
+                        help="每题采样次数 (默认 2; 3 用于稳定性评估, 耗时 x1.5)")
     args = parser.parse_args()
 
     golden = load_golden()
     if args.quick:
         golden = golden[:10]
 
-    print(f"=== 金标评测 ({len(golden)} 题) ===", file=sys.stderr)
+    print(f"=== 金标评测 ({len(golden)} 题, samples={args.samples}) ===", file=sys.stderr)
     results = []
     total_hit = 0.0
 
     for i, q in enumerate(golden, 1):
-        r = evaluate_question(q)
+        r = evaluate_question(q, samples=args.samples)
         results.append(r)
         total_hit += r["hit_rate"]
         mark = "✅" if r["hit_rate"] >= 0.5 else "⚠️"

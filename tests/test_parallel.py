@@ -33,7 +33,7 @@ def test_should_parallel_customer_db():
 def test_retrieve_global_returns_rows():
     """全局库检索 (真实库, 只验证函数契约) — 需 embedding 模型"""
     try:
-        import sentence_transformers  # noqa: F401
+        import sentence_transformers
     except Exception as exc:
         pytest.skip(f"ml 依赖不可用 (torch ABI 环境问题): {exc}")
     from scripts.parallel import _global_db, _retrieve_global
