@@ -286,8 +286,9 @@ def retrieve(query: str, top_k: int = 5) -> list[dict]:
                    list_cosine_similarity(embedding, ?) as sim,
                    importance, fetched_at
             FROM compliance_chunks
+            WHERE title != '文档头部'
             ORDER BY sim DESC
-            LIMIT {top_k * 3}
+            LIMIT {top_k * 5}
         """, [qvec.tolist()]).fetchall()
         con.close()
         return [
@@ -379,6 +380,11 @@ def compile_context(query: str, top_k: int = 3, mask_metadata: bool = False) -> 
 
     # 2. 相似度阈值过滤
     filtered = [c for c in candidates if c["hits"] >= SIM_THRESHOLD]
+
+    # 2.5 头部块过滤 (AR-05): "文档头部"块只含标题+元信息 (标题与查询字面重合,
+    # 相似度高但无实质内容, 会挤占内容块位置) → 剔除, 让内容块顶上
+    filtered = [c for c in filtered
+                if not (c.get("title") == "文档头部" and c["char_len"] < 600)]
 
     # 3. MMR 多样性重排 + 重要性加权 (综合分 = λ*sim + (1-λ)*importance - (1-λ)*dup)
     reranked = mmr_rerank(filtered, qvec, top_k)

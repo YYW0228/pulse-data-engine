@@ -65,7 +65,9 @@ def load_golden() -> list[dict]:
 
 def evaluate_question(q: dict, top_k: int = 5, samples: int = 2) -> dict:
     """评测单题: 跑问答 samples 次取最高命中 (消除模型随机性)"""
-    from compliance_qa import answer
+    # AR-05: 统一包导入 (scripts.compliance_qa) — 避免 compliance_qa 与
+    # scripts.compliance_qa 双模块状态干扰 (偶发 0ms ERR: 模型/组件状态不一致)
+    from scripts.compliance_qa import answer
 
     question = q["question"]
     expects = q["expect"]
