@@ -19,3 +19,12 @@ avg_hit_rate = **0.723** (见 ar-baseline.md, 数据 golden_baseline_20260814.js
 ### AR-02 (候选, 未执行): intent guard 误伤
 - 现象: "大模型服务提供者有哪些义务？" (合法事实查询) 被 guard 快速拒绝 30ms/33%
 - 方向: 检查 classify_intent 关键词误判, 需先建误伤率样本集
+
+## AR-02: intent guard 误伤 (2026-08-14)
+
+- **发现**: golden 基线第 23 题 "AI模型备案和算法备案有什么区别?" 被判 meta 拒绝 (meta_kw "有什么区别" 过宽) — 合规概念对比被误认为元问题
+- **样本集**: data/intent_guard_samples.json (20 条合法事实查询, 覆盖义务/对比/豁免/否定/主体/流程/跨境)
+- **修复**: "区别" 类仅在对系统/模型提问时判 meta (含 你/chatgpt/你们/系统), 其余 "区别" → factual
+- **验证**: 样本集 20/20 factual; golden 30 题误伤 1→0; meta 6 例不回归; 注入/角色扮演/探测 3 例仍拦截
+- **门禁**: tests/test_intent_guard.py (4 测试, 防回退)
+- **AR-02 结论**: DONE (误伤率样本集 0/20, golden 0/30)

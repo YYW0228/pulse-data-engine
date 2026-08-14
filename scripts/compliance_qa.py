@@ -490,11 +490,15 @@ def classify_intent(query: str) -> str:
         return "creative"
 
     # 元问题 (关于系统本身 — 信任/能力/来源, 不检索直接回答)
+    # AR-02 修复: "区别" 类仅在对系统/模型提问时判 meta, 防误伤合规概念对比
+    # (如 "算法备案和生成式AI备案有什么区别?" 是事实查询, 不是元问题)
     meta_kw = ["有多少把握", "谁负责", "怎么保证", "怎么证明", "信息来源",
                "数据来源", "准确吗", "可靠吗", "最新的吗", "多久更新",
-               "和chatgpt", "和 chatgpt", "有什么区别", "是你做的吗",
+               "和chatgpt", "和 chatgpt", "是你做的吗",
                "你的原理", "你会出错", "错了怎么办", "怎么更新"]
     if any(k in q for k in meta_kw):
+        return "meta"
+    if "区别" in q and any(s in q for s in ("你", "chatgpt", "你们", "系统")):
         return "meta"
 
     return "factual_query"
