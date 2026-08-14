@@ -56,10 +56,21 @@ class L1Analyzer:
     """L1 快评 — 跑在 VPS, 用 DeepSeek, 便宜快捷"""
 
     def __init__(self):
-        self.api_key = os.environ.get("DEEPSEEK_API_KEY")
+        self.api_key = os.environ.get("DEEPSEEK_API_KEY") or self._load_key_from_files()
         if not self.api_key:
             logger.warning("[L1Analyzer] 无 DEEPSEEK_API_KEY — 使用模拟分析")
         self.model = "deepseek-chat"
+
+    @staticmethod
+    def _load_key_from_files() -> str | None:
+        """与 compliance_qa._get_api_key 一致的兜底: ~/.hermes/.env + 项目 .env。"""
+        from pathlib import Path
+        for env_path in (Path.home() / ".hermes" / ".env", Path(".env")):
+            if env_path.exists():
+                for line in env_path.read_text().splitlines():
+                    if line.startswith("DEEPSEEK_API_KEY="):
+                        return line.split("=", 1)[1].strip().strip("'\"")
+        return None
 
     def analyze(self, post: dict, context: dict | None = None) -> dict:
         """
