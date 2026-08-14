@@ -45,3 +45,4 @@ pulse/data/*.duckdb
 Thumbs.db
 .gstack/
 *.egg-info/
+data/llm_audit.jsonl

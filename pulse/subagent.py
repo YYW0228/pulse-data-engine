@@ -53,7 +53,7 @@ def review_answer(query: str, answer: str, citations: list[dict]) -> ReviewResul
     if not api_key:
         return ReviewResult(verdict="approved", ms=0)  # 无 key 跳过评审
 
-    import httpx
+    from pulse.llm_audit import audited_post
 
     cit_text = "\n".join(f"- {c.get('doc')} | {c.get('section')}" for c in citations) or "(无引用)"
 
@@ -78,7 +78,7 @@ AI 回答:
 verdict 含义: approved=可信可发布, flagged=有小问题需复核, rejected=有严重问题不能发布"""
 
     try:
-        resp = httpx.post(
+        resp = audited_post(
             "https://api.deepseek.com/v1/chat/completions",
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             json={
@@ -88,6 +88,7 @@ verdict 含义: approved=可信可发布, flagged=有小问题需复核, rejecte
                 "max_tokens": 500,
             },
             timeout=45,
+            source="subagent.review_answer",
         )
         content = resp.json()["choices"][0]["message"]["content"]
         # 提取 JSON

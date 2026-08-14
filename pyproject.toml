@@ -61,6 +61,7 @@ ignore = ["BLE001"]
 
 [tool.pytest.ini_options]
 addopts = "--cov=pulse --cov-report=term-missing --cov-fail-under=50 -v"
+pythonpath = ["."]
 
 [tool.coverage.run]
 source = ["pulse"]
