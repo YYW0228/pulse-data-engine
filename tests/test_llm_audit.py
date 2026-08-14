@@ -20,8 +20,9 @@ MSG = [{"role": "user", "content": "算法备案要求是什么?"}]
 
 @pytest.fixture(autouse=True)
 def _tmp_audit(tmp_path, monkeypatch):
-    monkeypatch.setattr(la, "AUDIT_PATH", tmp_path / "llm_audit.jsonl")
-    monkeypatch.setattr(ar, "AUDIT_PATH", tmp_path / "llm_audit.jsonl")
+    p = tmp_path / "llm_audit.jsonl"
+    monkeypatch.setenv("LLM_AUDIT_PATH", str(p))   # _append 动态读 env
+    monkeypatch.setattr(ar, "AUDIT_PATH", p)       # audit_reconstruct 用导入值
 
 
 def _mock_resp(status: int = 200):
@@ -40,7 +41,7 @@ def test_audited_post_records_request_before_call(tmp_path):
                         source="test.audited_post")
 
     mock_post.assert_called_once()
-    lines = (la.AUDIT_PATH).read_text(encoding="utf-8").strip().splitlines()
+    lines = la._audit_path().read_text(encoding="utf-8").strip().splitlines()
     req = json.loads(lines[0])
     assert req["kind"] == "request"
     assert req["messages"] == MSG                      # 模型所见已记录
@@ -55,7 +56,7 @@ def test_audit_failure_does_not_block_business(tmp_path):
     """网络失败也记录 result, 且异常向上抛 (业务语义不变)。"""
     with patch("httpx.post", side_effect=RuntimeError("conn refused")), pytest.raises(RuntimeError):
         la.audited_post("http://x", json={"model": "m", "messages": MSG})
-    lines = (la.AUDIT_PATH).read_text(encoding="utf-8").strip().splitlines()
+    lines = la._audit_path().read_text(encoding="utf-8").strip().splitlines()
     res = json.loads(lines[1])
     assert res["ok"] is False and "conn refused" in res["error"]
 
@@ -87,7 +88,7 @@ def test_find_loops_detects_repeat_burst():
 def test_load_window_filter(tmp_path):
     """load 只取窗口内记录; 损坏行静默跳过不炸。"""
     now = time.time()
-    p = la.AUDIT_PATH
+    p = la._audit_path()
     p.write_text(
         "\n".join([
             json.dumps({"kind": "request", "ts_epoch": now - 10, "x": 1}),
@@ -98,3 +99,46 @@ def test_load_window_filter(tmp_path):
     )
     reqs, _ = ar.load(days=1)
     assert [r["x"] for r in reqs] == [1]
+
+
+def _seed_fuse_records(n: int, source: str = "test.fuse", hash_: str | None = None):
+    """预写 n 条窗口内同源记录, 模拟高频重复。"""
+    hash_ = hash_ or la._prompt_hash(MSG)
+    now = time.time()
+    lines = [json.dumps({"kind": "request", "source": source, "prompt_hash": hash_,
+                         "ts_epoch": now - i * 10}) + "\n" for i in range(n)]
+    la._audit_path().write_text("".join(lines), encoding="utf-8")
+
+
+def test_fuse_blocks_repeat_burst():
+    """同 prompt 高频 (>=阈值) → LoopGuardError, 且不产生新记录。"""
+    _seed_fuse_records(la.FUSE_THRESHOLD)
+    with pytest.raises(la.LoopGuardError):
+        la.audited_post("http://x", json={"model": "m", "messages": MSG},
+                        source="test.fuse")
+    lines = la._audit_path().read_text(encoding="utf-8").strip().splitlines()
+    assert len(lines) == la.FUSE_THRESHOLD          # 被拒调用未落盘
+
+
+def test_fuse_allows_normal_repeats():
+    """低于阈值 (如正常重试) 不熔断。"""
+    _seed_fuse_records(la.FUSE_THRESHOLD - 1)
+    with patch("httpx.post", return_value=_mock_resp()):
+        la.audited_post("http://x", json={"model": "m", "messages": MSG},
+                        source="test.fuse")
+    lines = la._audit_path().read_text(encoding="utf-8").strip().splitlines()
+    reqs = [l for l in lines if '"kind": "request"' in l]
+    assert len(reqs) == la.FUSE_THRESHOLD              # seed 4 + 本次 1
+
+
+def test_fuse_off_env_disables():
+    """LLM_AUDIT_FUSE=off 完全关闭熔断 (测试/调试)。"""
+    import os
+    os.environ["LLM_AUDIT_FUSE"] = "off"
+    try:
+        _seed_fuse_records(la.FUSE_THRESHOLD + 2)
+        with patch("httpx.post", return_value=_mock_resp()):
+            la.audited_post("http://x", json={"model": "m", "messages": MSG}, source="test.fuse")
+        assert True
+    finally:
+        os.environ.pop("LLM_AUDIT_FUSE", None)

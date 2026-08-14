@@ -483,7 +483,7 @@ def _generate_handoff(history: list[dict[str, str]], api_key: str, model_name: s
     """
     if not api_key:
         return None
-    import httpx  # 局部导入 (与文件其他函数一致, 避免启动开销)
+    from pulse.llm_audit import audited_post
 
     # 只取最近的对话做摘要 (全量太长)
     recent = history[-10:]
@@ -491,7 +491,7 @@ def _generate_handoff(history: list[dict[str, str]], api_key: str, model_name: s
         f"{m['role']}: {m['content'][:200]}" for m in recent
     )
     try:
-        resp = httpx.post(
+        resp = audited_post(
             "https://api.deepseek.com/v1/chat/completions",
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             json={
@@ -509,6 +509,7 @@ def _generate_handoff(history: list[dict[str, str]], api_key: str, model_name: s
                 "max_tokens": 300,
             },
             timeout=30,
+            source="compliance_qa._generate_handoff",
         )
         resp.raise_for_status()
         data = resp.json()
@@ -756,7 +757,7 @@ def answer(query: str, top_k: int = 3, mask_metadata: bool = True,
         _record_metric(query, compile_ms, len(chunks), len(chunks), tokens_in_estimate, 0, True)
         return f"(编译耗时 {compile_ms:.0f}ms, 检索 {len(chunks)} 块)\n\n" + "\n\n".join(parts)
 
-    import httpx
+    from pulse.llm_audit import audited_post
 
     # ── PrefixCache 稳定化 (源自 Reasonix PrefixShape) ──
     # 1. 稳定 system prompt (版本 hash 固定) → 缓存命中
@@ -789,7 +790,7 @@ def answer(query: str, top_k: int = 3, mask_metadata: bool = True,
     })
 
     try:
-        resp = httpx.post(
+        resp = audited_post(
             "https://api.deepseek.com/v1/chat/completions",
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             json={
@@ -799,6 +800,7 @@ def answer(query: str, top_k: int = 3, mask_metadata: bool = True,
                 "max_tokens": 1000,
             },
             timeout=60,
+            source="compliance_qa.answer",
         )
         data = resp.json()
         # 反应式压缩: prompt_is_too_long → 截断 history 重试 (mini-claude-code)
@@ -862,10 +864,10 @@ def answer(query: str, top_k: int = 3, mask_metadata: bool = True,
 
 def _retry_empty_answer(api_key: str, messages: list[dict[str, str]], model_name: str) -> str:
     """空回答重试 (上游偶发) — 重试 1 次, 仍空返回友好错误"""
-    import httpx
+    from pulse.llm_audit import audited_post
 
     try:
-        resp = httpx.post(
+        resp = audited_post(
             "https://api.deepseek.com/v1/chat/completions",
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             json={
@@ -875,6 +877,7 @@ def _retry_empty_answer(api_key: str, messages: list[dict[str, str]], model_name
                 "max_tokens": 1000,
             },
             timeout=60,
+            source="compliance_qa._retry_empty_answer",
         )
         text = resp.json()["choices"][0]["message"]["content"]
         if text and text.strip():
@@ -904,15 +907,16 @@ def _llm_call_with_retry(api_key: str, messages: list[dict], model_name: str,
                          query: str, chunks: list[dict], history: list[dict] | None,
                          t0: float, tracer) -> str:
     """压缩后重发请求 (反应式压缩的第二阶段)"""
-    import httpx
+    from pulse.llm_audit import audited_post
 
     try:
-        resp = httpx.post(
+        resp = audited_post(
             "https://api.deepseek.com/v1/chat/completions",
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             json={"model": model_name, "messages": messages,
                   "temperature": 0.3, "max_tokens": 1000},
             timeout=60,
+            source="compliance_qa._llm_call_with_retry",
         )
         data = resp.json()
         answer_text = data["choices"][0]["message"]["content"]

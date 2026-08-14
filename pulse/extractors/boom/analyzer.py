@@ -74,11 +74,11 @@ class L1Analyzer:
 
     def _call_deepseek(self, post: dict, context: dict | None = None) -> dict:
         """调 DeepSeek API 做 L1 分析"""
-        import httpx
+        from pulse.llm_audit import audited_post
         
         user_prompt = self._build_prompt(post, context)
         try:
-            resp = httpx.post(
+            resp = audited_post(
                 "https://api.deepseek.com/v1/chat/completions",
                 headers={
                     "Authorization": f"Bearer {self.api_key}",
@@ -94,6 +94,7 @@ class L1Analyzer:
                     "max_tokens": 600,
                 },
                 timeout=30,
+                source="analyzer._call_deepseek",
             )
             resp.raise_for_status()
             data = resp.json()

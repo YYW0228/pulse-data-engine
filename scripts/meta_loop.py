@@ -104,10 +104,10 @@ def call_llm(prompt: str) -> str:
     if not api_key:
         return _fallback_proposals()
 
-    import httpx
+    from pulse.llm_audit import audited_post
 
     try:
-        resp = httpx.post(
+        resp = audited_post(
             "https://api.deepseek.com/v1/chat/completions",
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             json={
@@ -117,6 +117,7 @@ def call_llm(prompt: str) -> str:
                 "max_tokens": 1500,
             },
             timeout=60,
+            source="meta_loop.call_llm",
         )
         return resp.json()["choices"][0]["message"]["content"]
     except Exception as e:

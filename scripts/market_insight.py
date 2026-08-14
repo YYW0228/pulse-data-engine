@@ -156,14 +156,14 @@ def generate_prompt(data: dict) -> str:
 
 def call_llm(prompt: str) -> str:
     """调用 DeepSeek API 生成报告"""
-    import httpx
+    from pulse.llm_audit import audited_post
 
     api_key = os.environ.get("DEEPSEEK_API_KEY")
     if not api_key:
         return _fallback_report(prompt)
 
     try:
-        resp = httpx.post(
+        resp = audited_post(
             "https://api.deepseek.com/v1/chat/completions",
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             json={
@@ -173,6 +173,7 @@ def call_llm(prompt: str) -> str:
                 "max_tokens": 800,
             },
             timeout=30,
+            source="market_insight.call_llm",
         )
         data = resp.json()
         return data["choices"][0]["message"]["content"]
