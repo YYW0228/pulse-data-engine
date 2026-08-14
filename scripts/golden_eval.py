@@ -126,7 +126,7 @@ def main():
     if args.quick:
         golden = golden[:10]
 
-    print(f"=== 金标评测 ({len(golden)} 题) ===")
+    print(f"=== 金标评测 ({len(golden)} 题) ===", file=sys.stderr)
     results = []
     total_hit = 0.0
 
@@ -135,17 +135,18 @@ def main():
         results.append(r)
         total_hit += r["hit_rate"]
         mark = "✅" if r["hit_rate"] >= 0.5 else "⚠️"
-        print(f"{mark} [{i}/{len(golden)}] {r['question'][:40]}")
+        print(f"{mark} [{i}/{len(golden)}] {r['question'][:40]}", file=sys.stderr)
         print(f"    命中 {len(r['covered'])}/{len(r['expect'])} ({r['hit_rate']*100:.0f}%) "
-              f"{r['ms']}ms")
+              f"{r['ms']}ms", file=sys.stderr)
 
     avg = total_hit / len(results) if results else 0
     passed = avg >= PASS_THRESHOLD
-    print(f"\n=== 平均命中率: {avg*100:.1f}% {'✅ 通过' if passed else '❌ 未通过 (<80%)'} ===")
+    print(f"\n=== 平均命中率: {avg*100:.1f}% {'✅ 通过' if passed else '❌ 未通过 (<80%)'} ===",
+          file=sys.stderr)
 
-    if args.json:
-        print(json.dumps({"avg_hit_rate": round(avg, 3), "passed": passed,
-                          "results": results}, ensure_ascii=False, indent=2))
+    # stdout 只输出 JSON (进度走 stderr) — 2026-08-14 修复: 基线文件曾被进度文本污染
+    print(json.dumps({"avg_hit_rate": round(avg, 3), "passed": passed,
+                      "results": results}, ensure_ascii=False, indent=2))
 
     sys.exit(0 if passed else 1)
 

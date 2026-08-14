@@ -53,7 +53,7 @@ def _active_db() -> Path:
     return DB_PATH
 
 # ── Context Compiler 参数 ────────────────────────────────────────────
-SIM_THRESHOLD = 0.55      # 低于此相似度的块不进 context
+SIM_THRESHOLD = 0.52      # 低于此相似度的块不进 context (AR-04: 0.55→0.52, 大模型义务题 0.53 边缘召回)
 MAX_CONTEXT_CHARS = 8000  # context 总长度预算 (A/B 通过 2026-08-10)
 LARGE_CHUNK_CHARS = 3000 # 单块超过此长度 → 转存文件 (reactive_compaction)
 HANDOFF_THRESHOLD = 6 # history 超过 8 轮 → 生成交接摘要 (T6, buzz 模式)
