@@ -77,6 +77,50 @@ def _audit_path() -> Path:
     return Path(os.environ.get("LLM_AUDIT_PATH", "data/llm_audit.jsonl"))
 
 
+def audit_compaction_start(source: str, trigger: str, dropped: list[dict],
+                           kept_count: int) -> str:
+    """压缩过程成为一等审计事件 (方案 A: 重建"模型实际看到的有效历史")。
+
+    dropped: 被折叠的原始消息列表 (仅记录 role/len/hash, 不保留全文 —
+             压缩语义即丢弃, 全文不再对模型可见); kept_count: 压缩后消息数。
+    返回 compaction_id, 供 audit_compaction_end 配对 (孤儿检测: start 无 end)。
+    """
+    compaction_id = f"cmp_{uuid.uuid4().hex[:10]}"
+    dropped_meta = [{
+        "role": m.get("role", "?"),
+        "len": len(m.get("content", "")),
+        "hash": hashlib.md5(str(m.get("content", "")).encode()).hexdigest()[:16],
+    } for m in dropped]
+    dropped_total = hashlib.md5(
+        json.dumps([m["hash"] for m in dropped_meta], ensure_ascii=False).encode()
+    ).hexdigest()[:16]
+    _append({
+        "kind": "compaction/start",
+        "compaction_id": compaction_id,
+        "ts": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "ts_epoch": time.time(),
+        "source": source,
+        "trigger": trigger,
+        "dropped_count": len(dropped_meta),
+        "dropped": dropped_meta,
+        "dropped_total_hash": dropped_total,
+        "kept_count": kept_count,
+    })
+    return compaction_id
+
+
+def audit_compaction_end(compaction_id: str, ok: bool, error: str | None = None) -> None:
+    """压缩收尾事件; 与 start 配对, 孤儿 = start 无 end (崩溃/异常中道)。"""
+    _append({
+        "kind": "compaction/end",
+        "compaction_id": compaction_id,
+        "ts": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "ts_epoch": time.time(),
+        "ok": ok,
+        "error": error,
+    })
+
+
 def _append(entry: dict[str, Any]) -> None:
     """线程安全追加一条审计记录; 写失败只告警, 绝不阻塞模型调用。"""
     try:

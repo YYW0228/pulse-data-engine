@@ -805,10 +805,15 @@ def answer(query: str, top_k: int = 3, mask_metadata: bool = True,
         data = resp.json()
         # 反应式压缩: prompt_is_too_long → 截断 history 重试 (mini-claude-code)
         if resp.status_code == 400 and "prompt_is_too_long" in resp.text:
-            compacted = _reactive_compact(messages, history)
-            if compacted is not None:
+            result = _reactive_compact(messages, history)
+            if result is not None:
+                compacted, dropped = result
+                from pulse.llm_audit import audit_compaction_start
+                cid = audit_compaction_start(
+                    "compliance_qa.answer", "prompt_is_too_long", dropped, len(compacted)
+                )
                 return _llm_call_with_retry(api_key, compacted, model_name, query, chunks,
-                                            history, t0, tracer)
+                                            history, t0, tracer, compaction_id=cid)
         answer_text = data["choices"][0]["message"]["content"]
         # 空回答重试 (上游偶发空 content — Error Handling)
         if not answer_text or not answer_text.strip():
@@ -887,9 +892,11 @@ def _retry_empty_answer(api_key: str, messages: list[dict[str, str]], model_name
     return "抱歉，模型暂时无法生成回答，请稍后重试。" + "\n\n(回答为空 — 上游模型偶发异常，已重试)" + "\n\n引用来源：无（未生成回答）"
 
 
-def _reactive_compact(messages: list[dict], history: list[dict] | None) -> list[dict] | None:
+def _reactive_compact(messages: list[dict], history: list[dict] | None) -> tuple[list[dict], list[dict]] | None:
     """反应式压缩: prompt_is_too_long → 保留 system + 最近 4 轮, 其余丢弃
-    (mini-claude-code 思路: 错误永不暴露给用户)"""
+    (mini-claude-code 思路: 错误永不暴露给用户)
+    返回 (compacted, dropped): compacted=压缩后消息, dropped=被折叠的原始消息。
+    """
     try:
         if not history or len(history) <= 6:
             return None  # 历史太短, 压缩无意义
@@ -898,16 +905,18 @@ def _reactive_compact(messages: list[dict], history: list[dict] | None) -> list[
         # 重新组装当前问题消息 (最后一个 user 消息保留完整内容)
         for m in messages[-1:]:
             compacted.append(m)
-        return compacted
+        # 被折叠 = system 之后、keep 之前的原始历史消息
+        dropped = messages[1:-1][:len(history) - 6] if len(messages) > 1 else []
+        return compacted, dropped
     except Exception:
         return None
 
 
 def _llm_call_with_retry(api_key: str, messages: list[dict], model_name: str,
                          query: str, chunks: list[dict], history: list[dict] | None,
-                         t0: float, tracer) -> str:
-    """压缩后重发请求 (反应式压缩的第二阶段)"""
-    from pulse.llm_audit import audited_post
+                         t0: float, tracer, compaction_id: str | None = None) -> str:
+    """压缩后重发请求 (反应式压缩的第二阶段); compaction_id 用于压缩审计配对。"""
+    from pulse.llm_audit import audit_compaction_end, audited_post
 
     try:
         resp = audited_post(
@@ -930,8 +939,12 @@ def _llm_call_with_retry(api_key: str, messages: list[dict], model_name: str,
             tracer.step("reactive_compact", {"tokens_out": tokens_out, "citations": citations})
             tracer.save({"success": True, "model": model_name, "citations": citations,
                          "reactive_compact": True})
+        if compaction_id:
+            audit_compaction_end(compaction_id, ok=True)
         return answer_text
     except Exception:
+        if compaction_id:
+            audit_compaction_end(compaction_id, ok=False, error="compact_retry_failed")
         return "抱歉，上下文过长且压缩重试失败，请开始新对话。\n\n(上下文超限 — 已尝试自动压缩)"
 
 

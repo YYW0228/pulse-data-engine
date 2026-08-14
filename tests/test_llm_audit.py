@@ -97,8 +97,83 @@ def test_load_window_filter(tmp_path):
         ]) + "\n",
         encoding="utf-8",
     )
-    reqs, _ = ar.load(days=1)
+    reqs, _, _ = ar.load(days=1)
     assert [r["x"] for r in reqs] == [1]
+
+
+def test_compaction_events_recorded():
+    """压缩成为一等审计事件: start 带折叠元数据 (role/len/hash), end 配对。"""
+    dropped = [{"role": "user", "content": "早期问题" * 10},
+               {"role": "assistant", "content": "早期回答" * 10}]
+    cid = la.audit_compaction_start("compliance_qa.answer", "prompt_is_too_long",
+                                    dropped, kept_count=8)
+    assert cid.startswith("cmp_")
+    la.audit_compaction_end(cid, ok=True)
+
+    _, _, events = ar.load(days=1)
+    starts = [e for e in events if e.get("kind") == "compaction/start"]
+    ends = [e for e in events if e.get("kind") == "compaction/end"]
+    assert len(starts) == 1 and len(ends) == 1
+    s = starts[0]
+    assert s["trigger"] == "prompt_is_too_long"
+    assert s["dropped_count"] == 2
+    assert s["kept_count"] == 8
+    assert s["dropped"][0]["role"] == "user"
+    assert len(s["dropped"][0]["hash"]) == 16
+    assert s["dropped_total_hash"]
+    assert ends[0]["compaction_id"] == cid and ends[0]["ok"] is True
+    # 方案 A 重建语义: 折叠元数据 + hash 可解释"哪些被折叠"
+    assert ar.find_compaction_orphans(events) == []
+
+
+def test_compaction_orphan_detected():
+    """start 无 end (压缩中途崩溃) → 孤儿, 审计链断裂点被标记。"""
+    cid = la.audit_compaction_start("test.compact", "simulated_crash", [{"role": "user", "content": "x"}], 3)
+    assert cid
+    _, _, events = ar.load(days=1)
+    orphans = ar.find_compaction_orphans(events)
+    assert len(orphans) == 1
+    assert orphans[0]["compaction_id"] == cid
+    assert orphans[0]["source"] == "test.compact"
+    # 补 end 后孤儿消失
+    la.audit_compaction_end(cid, ok=False, error="crash")
+    _, _, events2 = ar.load(days=1)
+    assert ar.find_compaction_orphans(events2) == []
+
+
+def test_compaction_chain_end_to_end():
+    """400 prompt_is_too_long → 压缩 → 重发: 审计链完整 (start + 压缩后request + end)。"""
+    import scripts.compliance_qa as cqa
+
+    history = [{"role": r, "content": f"消息{i}" * 50}
+               for i in range(10) for r in ("user", "assistant")]
+    messages = [{"role": "system", "content": "sys"}] + history + \
+               [{"role": "user", "content": "当前问题"}]
+    result = cqa._reactive_compact(messages, history)
+    assert result is not None
+    compacted, dropped = result
+    assert len(compacted) == 8                       # system + 6 条 + 当前问题
+    assert len(dropped) == len(history) - 6         # 被折叠 = 早期 14 条
+    assert all(m["role"] in ("user", "assistant") for m in dropped)
+
+    # 模拟 answer() 的审计调用序列 (与 compliance_qa 代码一致)
+    cid = la.audit_compaction_start("compliance_qa.answer", "prompt_is_too_long",
+                                    dropped, len(compacted))
+    with patch("httpx.post", return_value=_mock_resp()):
+        la.audited_post("https://api.deepseek.com/v1/chat/completions",
+                        json={"model": "deepseek-chat", "messages": compacted},
+                        source="compliance_qa._llm_call_with_retry")
+    la.audit_compaction_end(cid, ok=True)
+
+    reqs, _, events = ar.load(days=1)
+    starts = [e for e in events if e.get("kind") == "compaction/start"]
+    ends = [e for e in events if e.get("kind") == "compaction/end"]
+    assert len(starts) == 1 and len(ends) == 1 and starts[0]["dropped_count"] == 14
+    # 方案 A: 压缩后重发的 request 记录 = 模型实际看到的有效历史
+    retry_req = [r for r in reqs if r.get("source") == "compliance_qa._llm_call_with_retry"]
+    assert len(retry_req) == 1
+    assert len(retry_req[0]["messages"]) == 8       # 与 compacted 一致
+    assert ar.find_compaction_orphans(events) == []
 
 
 def _seed_fuse_records(n: int, source: str = "test.fuse", hash_: str | None = None):
@@ -108,6 +183,32 @@ def _seed_fuse_records(n: int, source: str = "test.fuse", hash_: str | None = No
     lines = [json.dumps({"kind": "request", "source": source, "prompt_hash": hash_,
                          "ts_epoch": now - i * 10}) + "\n" for i in range(n)]
     la._audit_path().write_text("".join(lines), encoding="utf-8")
+
+
+def test_archive_moves_stale_records():
+    """超过保留期的记录 gzip 归档 (原文保留), 主链瘦身。"""
+    now = time.time()
+    p = la._audit_path()
+    p.write_text(
+        "\n".join([
+            json.dumps({"kind": "request", "ts_epoch": now - 60 * 86400, "x": "old"}),
+            json.dumps({"kind": "request", "ts_epoch": now - 10, "x": "fresh"}),
+            "{corrupt",  # 损坏行也随归档移走
+        ]) + "\n",
+        encoding="utf-8",
+    )
+    n = ar.archive(days=30)
+    assert n == 2
+    lines = p.read_text(encoding="utf-8").strip().splitlines()
+    assert len(lines) == 1 and '"x": "fresh"' in lines[0]
+    # 归档 gzip 存在且含旧记录
+    import glob
+    gzs = glob.glob(str(p.parent / "llm_audit_archive" / "llm_audit.*.jsonl.gz"))
+    assert gzs
+    import gzip
+    with gzip.open(gzs[-1], "rt", encoding="utf-8") as f:
+        content = f.read()
+    assert '"x": "old"' in content
 
 
 def test_fuse_blocks_repeat_burst():
