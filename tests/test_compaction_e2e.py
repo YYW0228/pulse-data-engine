@@ -80,7 +80,8 @@ def test_compaction_e2e_via_400(tmp_path):
                 "content": f"历史消息内容{i}" * 40} for i in range(8)]
 
     with patch("httpx.post", side_effect=seq), \
-         patch.object(cqa, "retrieve", return_value=_fake_chunks()):
+         patch.object(cqa, "retrieve", return_value=_fake_chunks()), \
+         patch.object(cqa, "_get_api_key", return_value="test-key"):  # CI 无 key → 模拟有 key
         out = cqa.answer("算法备案的要求是什么？", top_k=3, use_cache=False, history=history)
 
     assert "压缩后正常回答" in out        # 重发成功路径生效
@@ -119,7 +120,8 @@ def test_compaction_e2e_retry_failure_orphan_free(tmp_path):
                 "content": f"历史消息内容{i}" * 40} for i in range(8)]
 
     with patch("httpx.post", side_effect=seq), \
-         patch.object(cqa, "retrieve", return_value=_fake_chunks()):
+         patch.object(cqa, "retrieve", return_value=_fake_chunks()), \
+         patch.object(cqa, "_get_api_key", return_value="test-key"):
         out = cqa.answer("算法备案的要求是什么？", top_k=3, use_cache=False, history=history)
 
     assert "压缩重试失败" in out          # 降级消息
