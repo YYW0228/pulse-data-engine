@@ -9,6 +9,7 @@ tests/test_llm_audit_coverage.py — 防回退门禁: 所有 LLM 调用必须经
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -50,3 +51,33 @@ def test_no_raw_llm_url_escapes():
         if "api.deepseek.com" in text and "audited_post" not in text:
             raw.append(str(p.relative_to(ROOT)))
     assert not raw, f"裸 API 直连: {raw}"
+
+
+def test_all_compaction_functions_are_audited():
+    """收口门禁: 任何压缩/摘要函数必须自带审计副作用。
+
+    函数名匹配 compact|handoff 的 def, 其函数体必须含 audit_compaction 调用
+    或 compact_and_audit (统一入口), 否则压缩发生但审计缺失 = 局部真理。
+    """
+    import ast
+
+    violations = []
+    for p in _py_files():
+        try:
+            tree = ast.parse(p.read_text(encoding="utf-8", errors="ignore"))
+        except SyntaxError:
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            if not re.search(r"compact|handoff", node.name, re.IGNORECASE):
+                continue
+            # 豁免: 审计工具函数自身 (检测/记录实现, 不是压缩逻辑)
+            if re.search(r"find_compaction|audit_compaction", node.name):
+                continue
+            body_src = ast.get_source_segment(
+                p.read_text(encoding="utf-8", errors="ignore"), node) or ""
+            has_audit = ("audit_compaction" in body_src or "compact_and_audit" in body_src)
+            if not has_audit:
+                violations.append(f"{p.relative_to(ROOT)}::{node.name} 压缩/摘要无审计副作用")
+    assert not violations, "\n".join(violations)

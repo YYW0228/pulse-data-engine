@@ -142,7 +142,10 @@ def test_compaction_orphan_detected():
 
 
 def test_compaction_chain_end_to_end():
-    """400 prompt_is_too_long → 压缩 → 重发: 审计链完整 (start + 压缩后request + end)。"""
+    """400 prompt_is_too_long → 压缩 → 重发: 审计链完整 (start + 压缩后request + end)。
+
+    压缩函数本身强制审计 (compact_and_audit), 调用点不再手动 start。
+    """
     import scripts.compliance_qa as cqa
 
     history = [{"role": r, "content": f"消息{i}" * 50}
@@ -151,14 +154,13 @@ def test_compaction_chain_end_to_end():
                [{"role": "user", "content": "当前问题"}]
     result = cqa._reactive_compact(messages, history)
     assert result is not None
-    compacted, dropped = result
+    compacted, dropped, cid = result
     assert len(compacted) == 8                       # system + 6 条 + 当前问题
     assert len(dropped) == len(history) - 6         # 被折叠 = 早期 14 条
     assert all(m["role"] in ("user", "assistant") for m in dropped)
+    assert cid.startswith("cmp_")                    # 压缩即审计 (强制副作用)
 
-    # 模拟 answer() 的审计调用序列 (与 compliance_qa 代码一致)
-    cid = la.audit_compaction_start("compliance_qa.answer", "prompt_is_too_long",
-                                    dropped, len(compacted))
+    # 重发 (与 compliance_qa answer 一致) + end 配对
     with patch("httpx.post", return_value=_mock_resp()):
         la.audited_post("https://api.deepseek.com/v1/chat/completions",
                         json={"model": "deepseek-chat", "messages": compacted},
@@ -173,6 +175,33 @@ def test_compaction_chain_end_to_end():
     retry_req = [r for r in reqs if r.get("source") == "compliance_qa._llm_call_with_retry"]
     assert len(retry_req) == 1
     assert len(retry_req[0]["messages"]) == 8       # 与 compacted 一致
+    assert ar.find_compaction_orphans(events) == []
+
+
+def test_handoff_summary_compaction_audited():
+    """摘要型压缩 (handoff) 审计: summary hash + 被折叠早期历史映射。"""
+    import scripts.compliance_qa as cqa
+
+    history = [{"role": "user" if i % 2 == 0 else "assistant",
+                "content": f"轮次{i}内容" * 30} for i in range(30)]
+    # 用 mock 的 audited_post 让 handoff 走到成功分支
+    fake = _mock_resp()
+    fake.json.return_value = {"choices": [{"message": {"content": "任务已完成 80%, 下一步: 备案"}}]}
+    with patch("httpx.post", return_value=fake):
+        summary = cqa._generate_handoff(history, "test-key", "deepseek-chat", None)
+    assert summary and "会话交接摘要" in summary
+
+    _, _, events = ar.load(days=1)
+    starts = [e for e in events if e.get("kind") == "compaction/start"
+              and e.get("source") == "compliance_qa._generate_handoff"]
+    assert len(starts) == 1
+    s = starts[0]
+    assert s["trigger"] == "handoff_summary"
+    assert s["dropped_count"] == 20                  # history[:-10] 被折叠
+    assert s["summary_hash"] and len(s["summary_hash"]) == 16
+    assert s["summary_preview"] == summary[:200]
+    ends = [e for e in events if e.get("kind") == "compaction/end"]
+    assert len(ends) == 1 and ends[0]["ok"] is True  # start+end 成对
     assert ar.find_compaction_orphans(events) == []
 
 

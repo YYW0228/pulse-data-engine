@@ -23,6 +23,7 @@ import os
 import threading
 import time
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -78,11 +79,13 @@ def _audit_path() -> Path:
 
 
 def audit_compaction_start(source: str, trigger: str, dropped: list[dict],
-                           kept_count: int) -> str:
+                           kept_count: int, summary: str | None = None) -> str:
     """压缩过程成为一等审计事件 (方案 A: 重建"模型实际看到的有效历史")。
 
     dropped: 被折叠的原始消息列表 (仅记录 role/len/hash, 不保留全文 —
              压缩语义即丢弃, 全文不再对模型可见); kept_count: 压缩后消息数。
+    summary: 摘要型压缩 (如 handoff) 时, 真正注入模型的摘要文本 —
+             记录其 hash + 前 200 字预览, 证明"摘要来自哪些原文"可校验。
     返回 compaction_id, 供 audit_compaction_end 配对 (孤儿检测: start 无 end)。
     """
     compaction_id = f"cmp_{uuid.uuid4().hex[:10]}"
@@ -94,7 +97,7 @@ def audit_compaction_start(source: str, trigger: str, dropped: list[dict],
     dropped_total = hashlib.md5(
         json.dumps([m["hash"] for m in dropped_meta], ensure_ascii=False).encode()
     ).hexdigest()[:16]
-    _append({
+    entry: dict[str, Any] = {
         "kind": "compaction/start",
         "compaction_id": compaction_id,
         "ts": time.strftime("%Y-%m-%d %H:%M:%S"),
@@ -105,7 +108,11 @@ def audit_compaction_start(source: str, trigger: str, dropped: list[dict],
         "dropped": dropped_meta,
         "dropped_total_hash": dropped_total,
         "kept_count": kept_count,
-    })
+    }
+    if summary:
+        entry["summary_hash"] = hashlib.md5(summary.encode()).hexdigest()[:16]
+        entry["summary_preview"] = summary[:200]
+    _append(entry)
     return compaction_id
 
 
@@ -119,6 +126,35 @@ def audit_compaction_end(compaction_id: str, ok: bool, error: str | None = None)
         "ok": ok,
         "error": error,
     })
+
+
+@dataclass
+class CompactionRecord:
+    """统一压缩入口的返回: 压缩后消息 + 折叠元数据 + 审计配对 id。"""
+    compacted: list[dict]
+    dropped: list[dict]
+    compaction_id: str
+
+
+def compact_and_audit(messages: list[dict], history: list[dict] | None,
+                      trigger: str, source: str,
+                      keep_last_n: int = 6) -> CompactionRecord | None:
+    """统一压缩入口 — 压缩规则 + 强制审计副作用 (start 事件, 不可绕过)。
+
+    所有新压缩逻辑 (丢弃式/摘要式) 必须经此函数或显式调用
+    audit_compaction_start/end, 否则压缩发生但审计缺失 = 局部真理。
+    返回 None 表示无需压缩 (历史太短)。
+    """
+    if not history or len(history) <= keep_last_n:
+        return None  # 历史太短, 压缩无意义
+    keep = history[-keep_last_n:]  # 保留最近 keep_last_n 条
+    compacted = [messages[0]] + keep
+    for m in messages[-1:]:        # 当前问题消息保留完整
+        compacted.append(m)
+    # 被折叠 = system 之后、keep 之前的原始历史消息
+    dropped = messages[1:-1][:len(history) - keep_last_n] if len(messages) > 1 else []
+    cid = audit_compaction_start(source, trigger, dropped, len(compacted))
+    return CompactionRecord(compacted=compacted, dropped=dropped, compaction_id=cid)
 
 
 def _append(entry: dict[str, Any]) -> None:

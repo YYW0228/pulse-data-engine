@@ -480,10 +480,11 @@ def _generate_handoff(history: list[dict[str, str]], api_key: str, model_name: s
 
     长对话 (>HANDOFF_THRESHOLD 轮) → LLM 提炼: 原任务/已完成/下一步
     摘要替代旧消息, 保留最近一轮 → token 大降 + 状态不丢
+    摘要型压缩: 审计为函数本身强制副作用 (start+end+summary hash 一次成对)。
     """
     if not api_key:
         return None
-    from pulse.llm_audit import audited_post
+    from pulse.llm_audit import audit_compaction_end, audit_compaction_start, audited_post
 
     # 只取最近的对话做摘要 (全量太长)
     recent = history[-10:]
@@ -516,7 +517,13 @@ def _generate_handoff(history: list[dict[str, str]], api_key: str, model_name: s
         text = data["choices"][0]["message"]["content"].strip()
         if tracer:
             tracer.step("handoff", {"summary_len": len(text)})
-        return f"[会话交接摘要] {text}"
+        # 摘要型压缩审计: 被折叠 = 未进入摘要输入窗口的早期历史 (hash 元数据)
+        dropped = history[:-10] if len(history) > 10 else []
+        summary_text = f"[会话交接摘要] {text}"
+        cid = audit_compaction_start("compliance_qa._generate_handoff", "handoff_summary",
+                                     dropped, kept_count=3, summary=summary_text)
+        audit_compaction_end(cid, ok=True)
+        return summary_text
     except Exception:
         return None
 
@@ -807,11 +814,7 @@ def answer(query: str, top_k: int = 3, mask_metadata: bool = True,
         if resp.status_code == 400 and "prompt_is_too_long" in resp.text:
             result = _reactive_compact(messages, history)
             if result is not None:
-                compacted, dropped = result
-                from pulse.llm_audit import audit_compaction_start
-                cid = audit_compaction_start(
-                    "compliance_qa.answer", "prompt_is_too_long", dropped, len(compacted)
-                )
+                compacted, _dropped, cid = result
                 return _llm_call_with_retry(api_key, compacted, model_name, query, chunks,
                                             history, t0, tracer, compaction_id=cid)
         answer_text = data["choices"][0]["message"]["content"]
@@ -892,24 +895,19 @@ def _retry_empty_answer(api_key: str, messages: list[dict[str, str]], model_name
     return "抱歉，模型暂时无法生成回答，请稍后重试。" + "\n\n(回答为空 — 上游模型偶发异常，已重试)" + "\n\n引用来源：无（未生成回答）"
 
 
-def _reactive_compact(messages: list[dict], history: list[dict] | None) -> tuple[list[dict], list[dict]] | None:
+def _reactive_compact(messages: list[dict], history: list[dict] | None) -> tuple[list[dict], list[dict], str] | None:
     """反应式压缩: prompt_is_too_long → 保留 system + 最近 4 轮, 其余丢弃
     (mini-claude-code 思路: 错误永不暴露给用户)
-    返回 (compacted, dropped): compacted=压缩后消息, dropped=被折叠的原始消息。
+    统一经 compact_and_audit (压缩审计为强制副作用, 不可绕过)。
+    返回 (compacted, dropped, compaction_id)。
     """
-    try:
-        if not history or len(history) <= 6:
-            return None  # 历史太短, 压缩无意义
-        keep = history[-6:]  # 保留最近 3 轮 (user+assistant 对)
-        compacted = [messages[0]] + keep
-        # 重新组装当前问题消息 (最后一个 user 消息保留完整内容)
-        for m in messages[-1:]:
-            compacted.append(m)
-        # 被折叠 = system 之后、keep 之前的原始历史消息
-        dropped = messages[1:-1][:len(history) - 6] if len(messages) > 1 else []
-        return compacted, dropped
-    except Exception:
+    from pulse.llm_audit import compact_and_audit
+
+    rec = compact_and_audit(messages, history, "prompt_is_too_long",
+                            "compliance_qa.answer", keep_last_n=6)
+    if rec is None:
         return None
+    return rec.compacted, rec.dropped, rec.compaction_id
 
 
 def _llm_call_with_retry(api_key: str, messages: list[dict], model_name: str,
