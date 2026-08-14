@@ -27,6 +27,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import duckdb
 
+# ── HF 离线模式 (2026-08-14 AR 试点修复) ─────────────────────────────
+# sentence_transformers 5.x 加载模型时访问 HF hub 做远程检查, 无网/墙环境
+# get_model() 挂起 300s+ 无返回 (实测). 模型文件已本地缓存, 强制离线即可。
+# setdefault: 换模型需在线下载时手动 export HF_HUB_OFFLINE=0 覆盖。
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
+os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+
 DB_PATH = Path("data/compliance.duckdb")
 # 客户库查询 (compliance_index --db <name> 建的独立库)
 _CUSTOMER_DB: str | None = None
@@ -217,7 +224,9 @@ def _embedder_component():
     from pulse.component import ManagedComponent
 
     def _build() -> SentenceTransformer:
-        return SentenceTransformer("BAAI/bge-small-zh-v1.5")
+        # device="cpu": torch 2.6 + M2 MPS encode 偶发死锁 (实测 60s+ 无返回),
+        # CPU 推理 M2 Max 足够快且稳定 (2026-08-14 AR 试点修复)
+        return SentenceTransformer("BAAI/bge-small-zh-v1.5", device="cpu")
 
     return ManagedComponent(name="embedding.bge-small-zh", factory=_build)
 
@@ -703,13 +712,14 @@ def _guard_stats() -> dict:
 
 def answer(query: str, top_k: int = 3, mask_metadata: bool = True,
            history: list[dict[str, str]] | None = None,
-           budget: dict | None = None) -> str:
+           budget: dict | None = None, use_cache: bool = True) -> str:
     """检索 + DeepSeek 回答 (带引用) + 可观测性埋点
 
     mask_metadata=True (默认): 生产回答屏蔽内部评分 (observation masking),
     检索依据仅供展示层 (前端单独用 compile_context 获取)
     history: 历史对话 (append-only, PrefixCache 稳定化)
     budget: token 预算闸门 {max_tokens_in, max_tokens_out} (超限 capped)
+    use_cache: False = eval 模式 (不读不写记忆缓存, golden_eval 用)
     """
     t0 = time.time()
     # Trace 开始
@@ -721,7 +731,7 @@ def answer(query: str, top_k: int = 3, mask_metadata: bool = True,
         tracer = None
 
     # ── 记忆缓存命中 (memory_extract_min): 同 query 已有成功回答 → 直接返回 ──
-    if not history:  # 多轮对话不缓存 (上下文相关)
+    if not history and use_cache:  # 多轮对话不缓存 (上下文相关); eval 模式跳过
         hit = _memory_get(query)
         if hit:
             _record_metric(query, (time.time() - t0) * 1000, 0,
@@ -864,7 +874,7 @@ def answer(query: str, top_k: int = 3, mask_metadata: bool = True,
                        tokens_in_estimate, tokens_out, True, model=model_name,
                        cache_hit=cache_hit)
         # ── 记忆写入 (memory_extract_min): 成功且有引用 → 缓存供重复查询命中 ──
-        if not history:
+        if not history and use_cache:  # eval 模式不污染生产缓存
             _memory_put(query, answer_text, citations)
         if tracer:
             tracer.step("answer", {"model": model_name, "tokens_in": tokens_in_estimate,

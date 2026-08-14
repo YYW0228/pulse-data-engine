@@ -27,12 +27,27 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+# ── 模块级预加载 compliance_qa (2026-08-14) ──────────────────────────
+# 修复 torch dlopen 偶发崩: torch 2.6.0 cp310 wheel 链接 3.11+ 符号,
+# flat namespace 下能否解析取决于进程先加载的库。函数内才 import 时
+# 加载顺序不同 → symbol not found。模块级提前 import 稳定了顺序。
+import compliance_qa  # noqa: F401
+
+# ── Eval 模式环境 (2026-08-14 AR 试点) ───────────────────────────────
+# 1. 熔断关闭: 循环熔断是防死循环设计, eval 是有界批量调用 (samples=2 同 query
+#    重复 + 多轮运行累计 ≥5 次/10min 会被误伤)。审计仍完整记录, 不变量不受影响。
+# 2. 注意: 本脚本必须用 `python scripts/golden_eval.py` (脚本模式) 运行 —
+#    `python -m scripts.golden_eval` 包模式会触发 torch dlopen ABI 崩
+#    (py3.10 venv + torch 2.6, _PyCode_GetVarnames 符号缺失)。
+os.environ["LLM_AUDIT_FUSE"] = "off"
 
 GOLDEN_SET = Path(__file__).resolve().parent.parent / "data" / "golden_set.json"
 PASS_THRESHOLD = 0.8
@@ -55,19 +70,28 @@ def evaluate_question(q: dict, top_k: int = 5, samples: int = 2) -> dict:
     question = q["question"]
     expects = q["expect"]
 
-    best: dict = {"hit_rate": 0.0}
+    best: dict = {"hit_rate": 0.0, "question": question, "expect": expects,
+                  "covered": [], "ms": 0, "success": False, "answer_head": ""}
     for _ in range(samples):
         t0 = time.time()
-        try:
-            resp = answer(question, top_k=top_k)
-            success = True
-        except Exception as e:
-            resp = f"ERROR: {e}"
-            success = False
+        resp = None
+        success = False
+        last_err = "unknown"
+        for attempt in range(3):  # 偶发 dlopen (torch ABI) / 网络抖动 → 重试
+            try:
+                # use_cache=False: eval 必须测当前 prompt 的真实表现, 不走记忆缓存
+                resp = answer(question, top_k=top_k, use_cache=False)
+                success = True
+                break
+            except Exception as e:
+                last_err = str(e)
+                time.sleep(1)
+        if resp is None:
+            resp = f"ERROR: {last_err}"
         ms = (time.time() - t0) * 1000
-        covered = [e for e in expects if e in resp]
+        covered = [e for e in expects if e in resp] if success else []
         hit_rate = len(covered) / len(expects) if expects else 0
-        if hit_rate > best["hit_rate"]:
+        if success and hit_rate > best["hit_rate"]:
             best = {
                 "question": question,
                 "expect": expects,
@@ -76,6 +100,17 @@ def evaluate_question(q: dict, top_k: int = 5, samples: int = 2) -> dict:
                 "ms": round(ms),
                 "success": success,
                 "answer_head": resp[:100],
+            }
+        elif not success and best["answer_head"] == "":
+            # 失败也留痕: 记录首条错误, 否则全失败时 JSON 只有空壳无法诊断
+            best = {
+                "question": question,
+                "expect": expects,
+                "covered": [],
+                "hit_rate": 0.0,
+                "ms": round(ms),
+                "success": False,
+                "answer_head": f"ERR: {resp[:120]}",
             }
 
     return best
