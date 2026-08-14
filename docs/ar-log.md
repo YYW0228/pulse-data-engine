@@ -28,3 +28,10 @@ avg_hit_rate = **0.723** (见 ar-baseline.md, 数据 golden_baseline_20260814.js
 - **验证**: 样本集 20/20 factual; golden 30 题误伤 1→0; meta 6 例不回归; 注入/角色扮演/探测 3 例仍拦截
 - **门禁**: tests/test_intent_guard.py (4 测试, 防回退)
 - **AR-02 结论**: DONE (误伤率样本集 0/20, golden 0/30)
+
+## AR-03: 基线重跑 (2026-08-14)
+
+- **新基线**: 0.712 (vs 旧 0.723) — AR-02 guard 修复后 golden 误伤 1→0, 但 avg 略降 (2 题 ERR 环境偶发 + 检索覆盖缺口)
+- **AR-02 结论修正**: "大模型服务提供者有哪些义务?" 31ms = 检索 0 命中, 非 guard (台账见 ar-baseline.md)
+- **发现**: ① 检索覆盖缺口 ("大模型服务提供者义务"/"欧盟数据存储" 等主题无文档) — AR-04 候选 ② eval 双模块导入 (compliance_qa vs scripts.compliance_qa) 状态干扰 — 待统一为包导入
+- **eval 约束固化**: 必须前台跑 (后台触发 torch ABI dlopen 崩); golden_baseline 文件被进度文本污染是脚本设计 (进度+JSON 混 stdout) — 待修

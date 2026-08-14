@@ -24,6 +24,8 @@ from pathlib import Path
 
 # 确保 scripts/ 可导入 (compliance_metrics 等)
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+# 项目根: 支持 pulse.* 导入 (component 热替换原语; scripts/ 直接运行时也需要)
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import duckdb
 
