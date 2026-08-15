@@ -55,3 +55,15 @@ avg_hit_rate = **0.723** (见 ar-baseline.md, 数据 golden_baseline_20260814.js
 - **eval 修复**: 双模块统一包导入 (scripts.compliance_qa) — 消除 0ms ERR 偶发
 - **基线**: 0.712 → 0.778 → 0.789 → **0.800 ✅ (通过)**
 - **剩余低命中** (33%×5): 具体数字/机制词缺口 (72小时/30日/本地化/SCC/双轨) — 知识库补料候选 (GDPR SCC/数据泄露时限), 非 prompt 问题
+
+## 热替换提案真实跑一轮 — embedder_hot_swap (2026-08-15)
+
+- **背景**: d48aee8 已落地 cmd_apply swap_embedder 分支 + 4 swap 测试, 但链路从未真实跑过 (提案未生成) — P2 遗留
+- **链路修复 (3 个真实缺陷 + 1 测试基建)**:
+  1. swap_embedder 的 swap lambda 缺 device="cpu" (与 _build 不一致, 换模型必踩 MPS 死锁) → 已补
+  2. cmd_propose 生成提案时丢失 action 字段 (structural 只拷 pseudocode/prediction/impl_marker) → 动作型提案 evaluate 永远走"未实现" → 已补
+  3. cmd_evaluate 动作型提案误入对称 A/B (setattr bool 会破坏函数引用) → 新增动作型分支: 机制就绪检查 + 基线记录 → passed
+  4. tests/test_component.py fake_build/抛错 lambda 未镜像真实 ST 签名 (缺 **kwargs) → 已补
+- **真实一轮**: propose → evaluate (passed, 基线 引用率 1.00 / 572.8ms / verify_inconsistent=0) → apply (真实热替换 BAAI/bge-small-zh-v1.5)
+- **验证**: data/llm_audit.jsonl 新增 component/swap 事件 (source=harness_evolve.apply); 替换后检索正常 (引用 15/长回答); **201 tests 全绿**
+- **结论**: 动作型提案闭环打通 — 提案账本 (harness_proposals.jsonl) 状态 applied, 运行时热替换无需改源码/重启

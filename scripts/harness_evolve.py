@@ -385,6 +385,7 @@ def cmd_propose(args) -> int:
             proposal["pseudocode"] = variant.get("pseudocode", "")
             proposal["prediction"] = variant.get("prediction", "")
             proposal["impl_marker"] = variant.get("impl_marker", "")
+            proposal["action"] = variant.get("action", "")
         else:
             proposal["params"] = variant["params"]
         with PROPOSALS.open("a") as f:
@@ -427,6 +428,30 @@ def cmd_evaluate(args) -> int:
         print(f"结构提案: {prop['rationale']}")
         print(f"插入点: {prop.get('diff', '')}")
         print(f"可验证预测: {prop.get('prediction', '')}")
+        # 动作型提案 (如 swap_embedder): 评估 = 机制就绪检查 + 基线记录
+        # (无源码 marker, 不适用对称 A/B — setattr bool 语义会破坏函数)
+        if prop.get("action"):
+            implemented = "swap_embedder" in QA_SRC.read_text()
+            if not implemented:
+                print(f"⚠️ 动作原语未就绪 (swap_embedder 缺失) — 记录基线, 实现后重跑")
+            base_results = run_regression(queries, top_k=args.top_k)
+            base = summarize(base_results)
+            prop["status"] = "passed" if implemented else "implementing"
+            prop["evaluation"] = {
+                "ts": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "baseline": base,
+                "decision": "pass" if implemented else "pending_implementation",
+                "reason": ("动作型提案: 机制就绪 (swap_embedder + cmd_apply 分支 + "
+                           "tests/test_harness_evolve_swap.py), apply 执行真实热替换"
+                           if implemented else "动作原语未就绪, 待实现"),
+            }
+            lines = [json.dumps(p, ensure_ascii=False) for p in proposals]
+            PROPOSALS.write_text("\n".join(lines) + "\n")
+            print(f"基线: 引用率 {base['citation_rate']:.2f} | 平均 {base['avg_ms']}ms | "
+                  f"loop={base['loop_triggered']} 低置信={base['low_confidence_rate']} "
+                  f"verify_inconsistent={base.get('verify_inconsistent')}")
+            print(f"→ 状态: {prop['status']} ({'机制就绪, 可 apply' if implemented else '待实现'})")
+            return 0
         # 已实现判定: impl_marker 出现在 QA_SRC
         marker = prop.get("impl_marker", "")
         implemented = bool(marker and marker in QA_SRC.read_text())

@@ -32,7 +32,8 @@ def _fake_model_env(tmp_path, monkeypatch):
     monkeypatch.setenv("LLM_AUDIT_PATH", str(tmp_path / "llm_audit.jsonl"))
     cqa._embedder = None
 
-    def fake_build(name: str = "BAAI/bge-small-zh-v1.5") -> FakeEmbedder:
+    def fake_build(name: str = "BAAI/bge-small-zh-v1.5", **kwargs) -> FakeEmbedder:
+        # **kwargs 镜像真实 SentenceTransformer(model_name, device=...) 签名
         return FakeEmbedder(name)
 
     from pulse.component import ManagedComponent
@@ -136,7 +137,7 @@ def test_swap_embedder_failure_keeps_old(tmp_path, monkeypatch):
     # 让 fake 模块的 SentenceTransformer 抛错 (模拟加载失败)
     monkeypatch.setattr(
         sys.modules["sentence_transformers"], "SentenceTransformer",
-        lambda name: (_ for _ in ()).throw(RuntimeError("load fail")),
+        lambda name, **kwargs: (_ for _ in ()).throw(RuntimeError("load fail")),
     )
     with pytest.raises(RuntimeError):
         cqa.swap_embedder("BAAI/nonexistent-model-xyz", source="test.failure")

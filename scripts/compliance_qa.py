@@ -254,7 +254,7 @@ def swap_embedder(model_name: str, source: str = "manual") -> tuple:
 
     if _embedder is None:
         _embedder = _embedder_component()
-    old, new = _embedder.swap(lambda: SentenceTransformer(model_name))
+    old, new = _embedder.swap(lambda: SentenceTransformer(model_name, device="cpu"))
     audit_component_swap(
         component=_embedder.name,
         old_desc=getattr(old, "_model_name", None) or "none",
