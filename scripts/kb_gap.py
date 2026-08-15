@@ -71,7 +71,7 @@ def scan_gap(golden: list[dict], top_k: int = 5, threshold: float = DEFAULT_THRE
             t0 = time.time()
             try:
                 hits = retrieve(word, top_k=top_k)
-            except Exception as exc:  # noqa: S110 — 单词检索失败不中断
+            except Exception as exc:  # 单词检索失败不中断
                 print(f"  ⚠️ 检索失败 [{word}]: {exc}", file=sys.stderr)
                 continue
             max_sim = max((c.get("hits", 0.0) for c in hits), default=0.0)
@@ -114,10 +114,14 @@ def render_report(result: dict) -> str:
     lines = [
         "# 知识库补料缺口报告 (kb_gap)",
         "",
-        f"> 生成: {time.strftime('%Y-%m-%d %H:%M:%S')} | 扫描 {result['scanned']} 题 | "
-        f"阈值 sim ≥ {result['threshold']} | 跳过短词 {result.get('skipped_short', 0)}",
-        f"> 流程: 本报告确认 → 补文档进 china-ai-governance references/ → "
-        f"`uv run python -m scripts.kb_refresh --no-scrape` 入库 → golden_eval 复评",
+        (
+            f"> 生成: {time.strftime('%Y-%m-%d %H:%M:%S')} | 扫描 {result['scanned']} 题 | "
+            f"阈值 sim ≥ {result['threshold']} | 跳过短词 {result.get('skipped_short', 0)}"
+        ),
+        (
+            f"> 流程: 本报告确认 → 补文档进 china-ai-governance references/ → "
+            f"`uv run python -m scripts.kb_refresh --no-scrape` 入库 → golden_eval 复评"
+        ),
         "",
         f"## 结论: {len(gaps)} 个概念缺口 / {len(qgaps)} 题受影响 / {result['covered']} 题知识覆盖完整",
         "",
