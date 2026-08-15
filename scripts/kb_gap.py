@@ -169,6 +169,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--top-k", type=int, default=5)
     parser.add_argument("--threshold", type=float, default=DEFAULT_THRESHOLD)
     parser.add_argument("--json", action="store_true", help="stdout 输出 JSON")
+    parser.add_argument("--watchdog", action="store_true",
+                        help="watchdog 模式: 仅存在真缺口 (level=gap) 时输出告警, 否则静默")
     args = parser.parse_args(argv)
 
     golden = load_golden(args.set)
@@ -178,6 +180,11 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0
+
+    # watchdog: 真缺口 (level=gap) 存在才告警, 无则静默 (cron no_agent 语义)
+    real_gaps = [g for g in result["concept_gaps"] if g["level"] == "gap"]
+    if args.watchdog and not real_gaps:
         return 0
 
     report = render_report(result)
