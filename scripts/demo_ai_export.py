@@ -46,6 +46,14 @@ CUSTOMER_QUESTIONS = [
      "acme: 数据安全手册 第三章"),
     ("出海产品发生数据泄露要多久通知？",
      "acme: 数据安全手册 第五章 GDPR 72小时"),
+    # 场景 10 (企业第二大脑): 决策建议型 — 跨文档聚合
+    ("根据我们公司的制度, 如果计划进入欧盟市场, 需要完成哪些合规动作？",
+     "acme: 合规评估/数据本地化/标识/隐私政策"),
+    # 场景 5 (合同审查): 风险条款识别 + 缺失条款提示
+    ("这份销售合同里, 哪些条款对卖方不利？",
+     "acme: 销售合同 付款/违约金/知识产权/争议管辖"),
+    ("这份合同缺少哪些常见必备条款？",
+     "acme: 销售合同 不可抗力/质量异议期限"),
 ]
 
 
@@ -59,7 +67,7 @@ def run_one(query: str, expect: str, customer: bool = False) -> dict:
         set_customer_db(None)
 
     t0 = time.time()
-    resp = answer(query, top_k=5)  # 客户库小块分散, top_k 加大
+    resp = answer(query, top_k=8 if customer else 5)  # 客户库小块分散, 加大召回
     ms = (time.time() - t0) * 1000
 
     # 判断是否命中期望 (引用数 + 期望关键词)
@@ -77,8 +85,8 @@ def main():
     args = parser.parse_args()
 
     print("=" * 62)
-    print("  AI 出海科技公司 — 合规问答演示 (10 题)")
-    print("  全局库: 57 文档 (法规+情报) | 客户库: acme 3 文档")
+    print(f"  AI 出海科技公司 — 合规问答演示 ({len(GLOBAL_QUESTIONS) + len(CUSTOMER_QUESTIONS)} 题)")
+    print(f"  全局库: 57 文档 (法规+情报) | 客户库: acme 4 文档 (含销售合同)")
     print("=" * 62)
 
     qs = GLOBAL_QUESTIONS + CUSTOMER_QUESTIONS
@@ -92,7 +100,7 @@ def main():
         mark = "✅" if r["hit"] else "⚠️"
         if r["hit"]:
             passed += 1
-        print(f"\n{mark} [{i}/10] ({'客户库' if customer else '全局库'}) {q}")
+        print(f"\n{mark} [{i}/{len(qs)}] ({'客户库' if customer else '全局库'}) {q}")
         print(f"   期望: {expect}")
         print(f"   引用: {r['citations']} | 耗时: {r['ms']:.0f}ms")
         print(f"   回答: {r['answer_head']}...")
