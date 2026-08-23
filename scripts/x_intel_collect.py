@@ -36,11 +36,52 @@ BIG_VS = {
     "lmsys": ("开源/模型", "LLM 评测, 模型排行"),
 }
 
-# 开发信号关键词 (过滤日常)
-SIGNAL_RE = re.compile(
+# 核心信号词 (深度 harness/工程信号 — 高价值直通)
+CORE_SIGNAL_RE = re.compile(
+    r"harness|scaffold|agent loop|agentic|context window|context engineer|"
+    r"\bmcp\b|token|rl training|reinforcement learning|self-improving|"
+    r"self-modifying|compaction|deep research|tool use|function calling|"
+    r"fine-tun|reasoning|long.?horizon|autonomous|multi.?agent|"
+    r"swarm|orchestrat|memory system|knowledge graph|eval|benchmark",
+    re.IGNORECASE)
+# 通用开发词 (弱信号 — 需正文较长且无生活噪音才保留)
+GENERAL_SIGNAL_RE = re.compile(
     r"harness|agent|wanman|vibe|开发|工程|产品|代码|sandbank|chatben|tuwa|"
     r"codex|claude|github|git|编程|startup|yc|openai|llm|模型|训练|推理|"
-    r"api|cloud|deploy|ship|发布|开源|open.?source|脑|brain|记忆|memory", re.IGNORECASE)
+    r"api|cloud|deploy|ship|发布|开源|open.?source|brain|记忆|memory",
+    re.IGNORECASE)
+# 生活噪音黑名单 (命中即排除, 即使含 codex/agent 等词)
+NOISE_RE = re.compile(
+    r"猫|喂食|寄养|宠物|狗|旅行|度假|家庭|孩子|娃|吃饭|餐厅|早餐|晚餐|"
+    r"跑步|健身|健身房|购物|买了个|搬家|结婚|生日|感冒|医院|看病|"
+    r"咖啡|奶茶|电影|追剧|游戏|steam", re.IGNORECASE)
+
+# 跨天去重: 已报告推文指纹 (data/intel_knowledge/.reported_hashes.jsonl)
+REPORTED_HASHES = Path(__file__).resolve().parent.parent / "data" / "intel_knowledge" / ".reported_hashes.jsonl"
+
+
+def is_reported(text: str) -> bool:
+    """按文本 hash 检查是否已报告过 (近 7 天)"""
+    import hashlib
+    h = hashlib.sha256(text.encode()).hexdigest()[:16]
+    now = datetime.now(timezone.utc).timestamp()
+    cutoff = now - 7 * 86400
+    seen = set()
+    lines = []
+    if REPORTED_HASHES.exists():
+        for line in REPORTED_HASHES.read_text().splitlines():
+            try:
+                ts, hh = line.split("\t")
+                if float(ts) >= cutoff:
+                    lines.append(line)
+                    seen.add(hh)
+            except ValueError:
+                continue
+    if h in seen:
+        return True
+    lines.append(f"{now:.0f}\t{h}")
+    REPORTED_HASHES.write_text("\n".join(lines) + "\n")
+    return False
 
 
 def fetch_handle(handle: str, limit: int = 20) -> list[dict]:
@@ -81,7 +122,10 @@ def build_report(handle: str, meta: tuple, tweets: list[dict]) -> str:
     n = 0
     for t in tweets:
         text = clean_text(t["text"])
-        if len(text) < 30 or not SIGNAL_RE.search(text):
+        # 过滤: 核心信号直通; 弱信号需正文较长; 噪音黑名单一律排除; 跨天去重
+        if len(text) < 30 or NOISE_RE.search(text) or is_reported(text):
+            continue
+        if not (CORE_SIGNAL_RE.search(text) or (GENERAL_SIGNAL_RE.search(text) and len(text) > 80)):
             continue
         n += 1
         lines.append(f"## 信号 {n}")
@@ -149,7 +193,8 @@ def main():
             # 收集市场信号 (去重清洗后的开发信号)
             for t in tweets:
                 text = clean_text(t["text"])
-                if len(text) >= 30 and SIGNAL_RE.search(text):
+                if len(text) >= 30 and not NOISE_RE.search(text) and \
+                        (CORE_SIGNAL_RE.search(text) or GENERAL_SIGNAL_RE.search(text)):
                     all_signals.append({"handle": h, "domain": BIG_VS[h][0],
                                         "text": text[:400]})
             print(f"✓ @{h}: {len(tweets)} 推文 → {len(report.splitlines()) if report else 0} 行报告")
