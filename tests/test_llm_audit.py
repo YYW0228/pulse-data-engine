@@ -155,7 +155,9 @@ def test_compaction_chain_end_to_end():
     result = cqa._reactive_compact(messages, history)
     assert result is not None
     compacted, dropped, cid = result
-    assert len(compacted) == 8                       # system + 6 条 + 当前问题
+    assert len(compacted) == 9                       # system + POST_COMPACT_RULES + 6 条 + 当前问题
+    assert compacted[1]["role"] == "system"           # 混乱税增量 2: 压缩后强制规则注入
+    assert "压缩后强制规则" in compacted[1]["content"]
     assert len(dropped) == len(history) - 6         # 被折叠 = 早期 14 条
     assert all(m["role"] in ("user", "assistant") for m in dropped)
     assert cid.startswith("cmp_")                    # 压缩即审计 (强制副作用)
@@ -174,7 +176,7 @@ def test_compaction_chain_end_to_end():
     # 方案 A: 压缩后重发的 request 记录 = 模型实际看到的有效历史
     retry_req = [r for r in reqs if r.get("source") == "compliance_qa._llm_call_with_retry"]
     assert len(retry_req) == 1
-    assert len(retry_req[0]["messages"]) == 8       # 与 compacted 一致
+    assert len(retry_req[0]["messages"]) == 9       # system + POST_COMPACT_RULES + 6 + 当前问题
     assert ar.find_compaction_orphans(events) == []
 
 

@@ -101,7 +101,8 @@ def test_compaction_e2e_via_400(tmp_path):
     retry = [e for e in lines if e.get("kind") == "request"
              and e.get("source") == "compliance_qa._llm_call_with_retry"]
     assert len(retry) == 1
-    assert len(retry[0]["messages"]) == 8           # system + 6 keep + 当前问题
+    assert len(retry[0]["messages"]) == 9           # system + POST_COMPACT_RULES + 6 keep + 当前问题
+    assert retry[0]["messages"][1]["role"] == "system"
 
 
 def test_compaction_e2e_retry_failure_orphan_free(tmp_path):

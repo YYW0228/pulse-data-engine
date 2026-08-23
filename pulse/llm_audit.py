@@ -154,6 +154,17 @@ class CompactionRecord:
     compaction_id: str
 
 
+# PostCompact 强制规则 (混乱税增量 2): 压缩后自动重灌关键约束。
+# 软性提示词在长周期/压缩后快速失效 — 每次压缩都机械重注入硬规则。
+POST_COMPACT_RULES = (
+    "〔压缩后强制规则 — 必须遵守〕\n"
+    "1. 所有回答必须带 [文档: 文件名 | 章节: xx] 引用; 无引用回答必须显式标注'知识缺口'。\n"
+    "2. 禁止声称完成了未经验证的工作; 测试/编译失败不得报成功。\n"
+    "3. 禁止整文件重复读取; 优先 search_files 定位或 read_file 局部读取。\n"
+    "4. 所有后续 LLM 调用必须经审计通道 (audited_post), 不得绕过。"
+)
+
+
 def compact_and_audit(messages: list[dict], history: list[dict] | None,
                       trigger: str, source: str,
                       keep_last_n: int = 6) -> CompactionRecord | None:
@@ -169,6 +180,8 @@ def compact_and_audit(messages: list[dict], history: list[dict] | None,
     compacted = [messages[0]] + keep
     for m in messages[-1:]:        # 当前问题消息保留完整
         compacted.append(m)
+    # PostCompact 强制规则注入: system 之后立即重灌硬约束
+    compacted.insert(1, {"role": "system", "content": POST_COMPACT_RULES})
     # 被折叠 = system 之后、keep 之前的原始历史消息
     dropped = messages[1:-1][:len(history) - keep_last_n] if len(messages) > 1 else []
     cid = audit_compaction_start(source, trigger, dropped, len(compacted))

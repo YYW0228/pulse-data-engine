@@ -429,7 +429,10 @@ def main():
     parser = argparse.ArgumentParser(description="VAS 目标驱动开发")
     parser.add_argument("--repo", required=True, help="目标 repo 路径")
     parser.add_argument("--goal", required=True, help="目标描述")
-    parser.add_argument("--engine", choices=["hermes", "claude"], default="hermes")
+    parser.add_argument("--engine", choices=["hermes", "claude"], default="hermes",
+                        help="执行引擎")
+    parser.add_argument("--review-engine", choices=["hermes", "claude"], default=None,
+                        help="独立评审引擎 (混乱税增量 4: 写/验分离; 默认同执行引擎)")
     parser.add_argument("--dry-run", action="store_true", help="只分析+规划, 不执行")
     parser.add_argument("--max-retries", type=int, default=2, help="单步最大重试次数")
     parser.add_argument("--workdir", default=None, help="工作目录 (默认 /tmp/vas-<repo>-<ts>)")
@@ -507,11 +510,34 @@ def main():
             step.status = "verifying"
             ok, vout = verify_step(step, repo)
             if ok:
-                step.status = "completed"
-                render_plan_md(result, workdir)
-                render_feature_list(result, workdir)
-                print(f"  ✅ 验证通过: {vout[:120]}")
-                break
+                # 独立评审 (混乱税增量 4: 写/验分离 — 谁来验比谁来写更重要)
+                review_engine = args.review_engine or args.engine
+                review_prompt = (
+                    "你是独立评审 (怀疑式第二意见, 无修改权限, 只读检查)。\n"
+                    f"步骤: {step.title}\n"
+                    f"目标: {step.description}\n"
+                    f"验证门结果: {vout[:300]}\n"
+                    "请检查仓库当前 git 状态 (git diff/status) 与最近提交, 判断该步骤是否真正完成、"
+                    "无越界改动、无未验证声明。\n"
+                    "输出首行: PASS 或 NEEDS_WORK, 然后 2-3 句具体理由。\n"
+                    "规则: 任一验收标准缺证据 = NEEDS_WORK; plausibility ≠ correctness。"
+                )
+                rrc, rout = run_agent(review_engine, review_prompt, repo, timeout=120)
+                review_pass = rrc == 0 and "PASS" in rout[:20]
+                if review_pass:
+                    step.status = "completed"
+                    render_plan_md(result, workdir)
+                    render_feature_list(result, workdir)
+                    print(f"  ✅ 验证通过: {vout[:120]}")
+                    print(f"  🔍 独立评审 ({review_engine}): PASS — {rout.strip()[:150]}")
+                    break
+                else:
+                    step.retries += 1
+                    render_plan_md(result, workdir)
+                    render_feature_list(result, workdir)
+                    print(f"  ⚠ 独立评审 ({review_engine}): NEEDS_WORK — {rout.strip()[:200]}")
+                    print(f"    验证门虽过但评审未过, retry {step.retries}/{args.max_retries}")
+                    continue
             else:
                 print(f"  ❌ 验证失败: {vout[:200]}")
                 step.retries += 1
