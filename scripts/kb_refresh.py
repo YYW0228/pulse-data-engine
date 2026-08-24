@@ -32,9 +32,18 @@ from pathlib import Path
 INTEL_SRC = Path.home() / "projects" / "china-ai-governance" / "reports"
 INTEL_DST = Path(__file__).resolve().parent.parent / "data" / "scene2_intel"
 X_INTEL_SRC = Path(__file__).resolve().parent.parent / "data" / "intel_knowledge"  # dap x 采集产物
-MARKET_SRC = Path.home() / "projects" / "pulse-data-engine" / "data" / "market_knowledge"  # job-scraper CI 回流 (Mac runner)
+MARKET_SRC = (
+    Path.home() / "projects" / "pulse-data-engine" / "data" / "market_knowledge"
+)  # job-scraper CI 回流 (Mac runner)
 MARKET_DST = Path(__file__).resolve().parent.parent / "data" / "market_knowledge"
-SCRAPER = Path.home() / "projects" / "china-ai-governance" / "_intel_scraper_v2.py"
+SCRAPER = (
+    Path.home()
+    / "projects"
+    / "china-ai-governance"
+    / "scripts"
+    / "intel-pipeline"
+    / "run-pipeline.py"
+)
 INDEX_CMD = [
     sys.executable,
     "-m",
@@ -44,7 +53,9 @@ INDEX_CMD = [
     "--include-jsonl",
 ]
 # references 稳定参考文档源 (china-ai-governance 法律参考 — 随仓库更新自动入库)
-REFERENCES_SRC = Path.home() / "projects" / "china-ai-governance" / "ai-governance-legal" / "references"
+REFERENCES_SRC = (
+    Path.home() / "projects" / "china-ai-governance" / "ai-governance-legal" / "references"
+)
 REFERENCES_DST = Path(__file__).resolve().parent.parent / "data" / "references"
 DB_PATH = Path(__file__).resolve().parent.parent / "data" / "compliance.duckdb"
 
@@ -100,13 +111,13 @@ def _scraper_interpreter() -> str:
     """
     import shutil
 
-    dap_root = os.environ.get('DAP_ROOT', '')
-    dap_python = Path(dap_root) / '.venv' / 'bin' / 'python' if dap_root else None
+    dap_root = os.environ.get("DAP_ROOT", "")
+    dap_python = Path(dap_root) / ".venv" / "bin" / "python" if dap_root else None
 
     candidates = [
         "/usr/bin/python3",
         "/usr/local/lib/hermes-agent/venv/bin/python3",
-        *( [str(dap_python)] if dap_python and dap_python.exists() else [] ),
+        *([str(dap_python)] if dap_python and dap_python.exists() else []),
         shutil.which("python3") or "",
     ]
     failures: list[str] = []
