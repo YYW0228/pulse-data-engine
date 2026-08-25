@@ -15,7 +15,15 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 SCAN_DIRS = ("pulse", "scripts")
 EXCLUDE_DIRS = {"__pycache__", "vendor", "node_modules", ".venv"}
-EXCLUDE_FILES = {"test_llm_audit.py", "test_llm_audit_coverage.py", "finops_tests.py"}
+EXCLUDE_FILES = {
+    "test_llm_audit.py",
+    "test_llm_audit_coverage.py",
+    "finops_tests.py",
+    # 素材工厂 (ingest_*): 调用本地 llama-server (127.0.0.1), 非云端 LLM 链路,
+    # 无外部可见性/成本, 不在 Model-visible=Logged 审计范围
+    "ingest_produce.py",
+    "ingest_review.py",
+}
 
 
 def _py_files() -> list[Path]:
