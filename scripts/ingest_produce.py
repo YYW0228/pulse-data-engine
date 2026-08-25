@@ -68,6 +68,8 @@ def fetch_meta(url: str) -> dict:
                 "%(duration_string)s",
                 "--print",
                 "%(webpage_url)s",
+                "--print",
+                "%(id)s",
             ],
             url,
         )
@@ -78,6 +80,7 @@ def fetch_meta(url: str) -> dict:
         "channel": lines[1] if len(lines) > 1 else "",
         "duration": lines[2] if len(lines) > 2 else "",
         "url": lines[3] if len(lines) > 3 else url,
+        "video_id": lines[4] if len(lines) > 4 else "",
     }
 
 
@@ -122,8 +125,8 @@ def get_transcript(url: str, workdir: Path) -> Path | None:
     return out
 
 
-def whisper_transcribe(url: str, workdir: Path) -> Path | None:
-    """whisper.cpp turbo 转录, 返回 txt 路径"""
+def whisper_transcribe(url: str, workdir: Path, lang: str = "auto") -> Path | None:
+    """whisper.cpp turbo 转录, 返回 txt 路径 (lang=auto 时自动检测语言)"""
     audio_dir = workdir / "audio"
     audio_dir.mkdir(exist_ok=True)
     r = run(
@@ -159,8 +162,6 @@ def whisper_transcribe(url: str, workdir: Path) -> Path | None:
         str(TURBO_MODEL),
         "-f",
         str(audio),
-        "-l",
-        "en",
         "-t",
         "8",
         "-otxt",
@@ -168,6 +169,8 @@ def whisper_transcribe(url: str, workdir: Path) -> Path | None:
         str(out_prefix),
         "-np",
     ]
+    if lang and lang != "auto":
+        cli += ["-l", lang]  # auto = 不传 -l, whisper.cpp 自动检测语言
     r = run(cli, timeout=1800)
     txt = workdir / "transcript.txt"
     if txt.exists() and txt.stat().st_size > 100:
@@ -248,6 +251,7 @@ def main() -> int:
     ap.add_argument("--no-push", action="store_true", help="不 git push (测试模式)")
     ap.add_argument("--keep-transcript", action="store_true", help="保留转录原文")
     ap.add_argument("--score", type=int, default=60, help="自评分 0-100")
+    ap.add_argument("--lang", default="auto", help="whisper 语言: auto(默认自动检测)/en/zh/ja...")
     args = ap.parse_args()
 
     if not WHISPER_CLI.exists() or not TURBO_MODEL.exists():
@@ -267,7 +271,7 @@ def main() -> int:
     source = "subtitle" if transcript else None
     if not transcript:
         print("[ingest] 无字幕, whisper.cpp 转录...")
-        transcript = whisper_transcribe(args.url, workdir)
+        transcript = whisper_transcribe(args.url, workdir, lang=args.lang)
         source = "whisper.cpp"
     if not transcript:
         print("[ingest] 转录失败")
@@ -289,11 +293,12 @@ def main() -> int:
         "title": meta["title"],
         "channel": meta["channel"],
         "url": meta["url"],
+        "video_id": meta.get("video_id", ""),
         "duration": meta["duration"],
         "ingested_at": datetime.now(timezone.utc).isoformat(),
         "transcript_source": source,
         "self_score": args.score,
-        "language": "zh",
+        "language": args.lang,
         "ingest_engine": "local-qwen3.5-9b",
     }
     meta_path = md_path.with_suffix(".json")

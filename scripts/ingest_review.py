@@ -111,8 +111,10 @@ def approve(files: list[str], force: bool) -> int:
         meta_path = md.with_suffix(".json")
         meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.exists() else {}
         r = score_md(md, meta)
-        if r["score"] < 60 or (r["score"] < 80 and not force):
-            print(f"  拒绝 {name}: 评分 {r['score']} (需>=80, 60-79需--force) {r['detail']}")
+        if r["score"] < 70 or (r["score"] < 80 and not force):
+            print(
+                f"  拒绝 {name}: 评分 {r['score']} (需>=80, 70-79人工队列需--force) {r['detail']}"
+            )
             continue
         dest = SCENE2 / md.name
         shutil.move(str(md), str(dest))
@@ -141,7 +143,7 @@ def approve(files: list[str], force: bool) -> int:
 def main() -> int:
     ap = argparse.ArgumentParser(description="主线 harness 素材筛查评分")
     ap.add_argument("--approve", nargs="+", default=None, help="终审入库: 文件列表或 'all'")
-    ap.add_argument("--force", action="store_true", help="允许 60-79 分入库")
+    ap.add_argument("--force", action="store_true", help="允许 70-79 分(人工确认队列)入库")
     args = ap.parse_args()
 
     results = scan()
@@ -156,9 +158,13 @@ def main() -> int:
         print(f"{r['file']:<55} {r['score']:>4}  {r['self_score']!s:>4}  {r['source']:<10} {note}")
     print("-" * 100)
     passed = [r for r in results if r["score"] >= 80]
-    manual = [r for r in results if 60 <= r["score"] < 80]
-    rejected = [r for r in results if r["score"] < 60]
-    print(f"通过: {len(passed)} | 待人工: {len(manual)} | 拒绝: {len(rejected)}")
+    manual = [r for r in results if 70 <= r["score"] < 80]
+    rejected = [r for r in results if r["score"] < 70]
+    print(f"自动通过: {len(passed)} | 人工确认队列: {len(manual)} | 拒绝(<70): {len(rejected)}")
+    if manual:
+        print("人工队列 (评分 70-79, 需 --approve + --force):")
+        for r in manual:
+            print(f"  - {r['file']} ({r['score']}) {r['detail']}")
 
     if args.approve:
         targets = [r["file"] for r in results] if "all" in args.approve else args.approve
