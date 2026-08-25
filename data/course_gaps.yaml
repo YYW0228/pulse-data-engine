@@ -1,0 +1,7 @@
+# data/course_gaps.yaml — 课程大纲缺口 (手动维护, 选题第二优先来源)
+# 格式: - topic: <主题关键词>
+# 来源优先级: kb_gap(自动) > 本文件 > 销售高频 > 热点
+- topic: RAG评估指标实操
+- topic: 提示词工程最佳实践
+- topic: AI智能体入门
+- topic: 数据飞轮与知识库建设

@@ -22,11 +22,45 @@ import json
 import shutil
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 PROJECT = Path(__file__).resolve().parent.parent
 INGEST = PROJECT / "data" / "ingest"
 SCENE2 = PROJECT / "data" / "scene2_intel"
+MATERIAL_INDEX = Path.home() / "projects" / "hermes-brain" / "memories" / "MATERIAL_INDEX.md"
+
+
+def register_material(md_name: str, meta: dict) -> None:
+    """轻量登记 hermes-brain 素材索引 (骨架层互链, 非阻塞失败)"""
+    try:
+        if not MATERIAL_INDEX.exists():
+            MATERIAL_INDEX.write_text(
+                "# MATERIAL_INDEX — 知识资产登记 (ingest 自动追加)\n"
+                "| 日期 | 素材 | 域 | 源 | 路径 |\n|---|---|---|---|---|\n",
+                encoding="utf-8",
+            )
+        concepts = ""
+        md_path = SCENE2 / md_name
+        if md_path.exists():
+            import re
+
+            m = re.search(
+                r"三、关键概念卡片.*?(?=\n## |\n## 四)", md_path.read_text(encoding="utf-8"), re.DOTALL
+            )
+            if m:
+                concepts = " ".join(re.findall(r"\*\*([^*]{2,20})\*\*", m.group(0))[:5])
+        date = datetime.now(timezone.utc).date().isoformat()
+        with MATERIAL_INDEX.open("a", encoding="utf-8") as f:
+            f.write(
+                f"| {date} | {meta.get('title', md_name)[:40]} | "
+                f"{meta.get('domain', 'compliance')} | {meta.get('url', '')[:60]} | "
+                f"data/scene2_intel/{md_name} |\n"
+            )
+        print(f"  → 已登记 hermes-brain MATERIAL_INDEX (concepts: {concepts[:60]})")
+    except Exception as e:
+        print(f"  ⚠ 登记失败(非阻塞): {e}")
+
 
 STRUCTURE_MARKERS = [
     "一、核心论点",
@@ -121,6 +155,7 @@ def approve(files: list[str], force: bool) -> int:
         if meta_path.exists():
             shutil.move(str(meta_path), str(SCENE2 / meta_path.name))
         print(f"  入库 {name}: 评分 {r['score']} -> scene2_intel")
+        register_material(md.name, meta)  # P2: 骨架层轻量登记 (非阻塞)
         moved += 1
     if moved:
         print(f"\n触发 compliance_index 索引...")

@@ -252,6 +252,12 @@ def main() -> int:
     ap.add_argument("--keep-transcript", action="store_true", help="保留转录原文")
     ap.add_argument("--score", type=int, default=60, help="自评分 0-100")
     ap.add_argument("--lang", default="auto", help="whisper 语言: auto(默认自动检测)/en/zh/ja...")
+    ap.add_argument(
+        "--domain",
+        default="course",
+        choices=["course", "compliance", "sales", "internal-ops"],
+        help="素材域 (可扩展枚举): course=课程素材(默认)/compliance=合规/sales=销售/internal-ops",
+    )
     args = ap.parse_args()
 
     if not WHISPER_CLI.exists() or not TURBO_MODEL.exists():
@@ -300,6 +306,7 @@ def main() -> int:
         "self_score": args.score,
         "language": args.lang,
         "ingest_engine": "local-qwen3.5-9b",
+        "domain": args.domain,
     }
     meta_path = md_path.with_suffix(".json")
     meta_path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")

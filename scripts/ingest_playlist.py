@@ -17,6 +17,7 @@ import argparse
 import json
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 PROJECT = Path(__file__).resolve().parent.parent
@@ -73,6 +74,77 @@ def load_seen_ids() -> set[str]:
     return seen
 
 
+def consume_queue(args) -> int:
+    """消费选题队列: approved 且未 done → 逐个 ingest_produce → 标记 done"""
+    queue_dir = PROJECT / "data" / "ingest" / "queue"
+    if not queue_dir.exists():
+        print("[queue] 队列目录不存在")
+        return 0
+    items = []
+    for f in sorted(queue_dir.glob("*.json")):
+        try:
+            m = json.loads(f.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            continue
+        if m.get("status") == "approved" and not m.get("done_at"):
+            items.append((f, m))
+    if not items:
+        print("[queue] 无已批准待消费选题")
+        return 0
+    # 按优先级 + 价值排序
+    items.sort(key=lambda x: (x[1].get("priority", 9), -x[1].get("expected_value", 0)))
+    print(f"[queue] 待消费 {len(items)} 个选题")
+
+    for f, m in items:
+        urls = m.get("candidates_urls") or []
+        if not urls:
+            # 无 URL: ytsearch 抓 3 个候选 (仅当 --ytsearch 开启)
+            if not getattr(args, "ytsearch", False):
+                print(f"  跳过 {m['topic']}: 无 candidates_urls (人工填 URL 或加 --ytsearch)")
+                continue
+            r = subprocess.run(
+                YTDLP_BASE
+                + ["--flat-playlist", "--print", "%(id)s|%(title)s", f"ytsearch3:{m['topic']}"],
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            urls = [
+                f"https://youtu.be/{ln.split('|')[0].strip()}"
+                for ln in r.stdout.splitlines()
+                if "|" in ln
+            ]
+        if not urls:
+            print(f"  跳过 {m['topic']}: 未找到候选 URL")
+            continue
+        url = urls[0]
+        print(f"\n[{m['topic']}] 吞噬: {url}")
+        r = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "scripts.ingest_produce",
+                url,
+                "--lang",
+                args.lang,
+                "--score",
+                str(args.score),
+                "--domain",
+                "course",
+            ],
+            cwd=str(PROJECT),
+            timeout=3600,
+        )
+        if r.returncode == 0:
+            m["done_at"] = datetime.now(timezone.utc).isoformat()
+            m["consumed_url"] = url
+            f.write_text(json.dumps(m, ensure_ascii=False, indent=2), encoding="utf-8")
+            print(f"  ✓ {m['topic']} 完成")
+        else:
+            print(f"  ⚠ {m['topic']} 吞噬失败, 保留队列")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="播放列表/频道批量吞噬 (video_id 去重)")
     ap.add_argument("url", help="playlist/channel/单视频 URL")
@@ -80,8 +152,18 @@ def main() -> int:
     ap.add_argument("--limit", type=int, default=0, help="最多处理 N 个 (0=全部)")
     ap.add_argument("--score", type=int, default=60, help="自评分传给 ingest_produce")
     ap.add_argument("--lang", default="auto", help="whisper 语言 (auto/en/zh...)")
+    ap.add_argument(
+        "--queue",
+        action="store_true",
+        help="消费选题队列: data/ingest/queue/ 中 approved 且未 done 的选题",
+    )
+    ap.add_argument(
+        "--ytsearch", action="store_true", help="队列消费时对无 URL 选题自动 ytsearch3 抓候选"
+    )
     args = ap.parse_args()
 
+    if args.queue:
+        return consume_queue(args)
     videos = list_videos(args.url)
     if not videos:
         print("[playlist] 未取到视频列表")

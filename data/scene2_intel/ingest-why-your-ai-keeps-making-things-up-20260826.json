@@ -8,5 +8,6 @@
   "self_score": 75,
   "language": "zh",
   "ingest_engine": "local-qwen3.5-9b",
-  "video_id": "Fxfn2iFd2lw"
+  "video_id": "Fxfn2iFd2lw",
+  "domain": "course"
 }

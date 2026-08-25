@@ -52,11 +52,12 @@ def _active_db() -> Path:
         return Path(f"data/customers/{_CUSTOMER_DB}/{_CUSTOMER_DB}.duckdb")
     return DB_PATH
 
+
 # ── Context Compiler 参数 ────────────────────────────────────────────
-SIM_THRESHOLD = 0.52      # 低于此相似度的块不进 context (AR-04: 0.55→0.52, 大模型义务题 0.53 边缘召回)
+SIM_THRESHOLD = 0.52  # 低于此相似度的块不进 context (AR-04: 0.55→0.52, 大模型义务题 0.53 边缘召回)
 MAX_CONTEXT_CHARS = 8000  # context 总长度预算 (A/B 通过 2026-08-10)
-LARGE_CHUNK_CHARS = 3000 # 单块超过此长度 → 转存文件 (reactive_compaction)
-HANDOFF_THRESHOLD = 6 # history 超过 8 轮 → 生成交接摘要 (T6, buzz 模式)
+LARGE_CHUNK_CHARS = 3000  # 单块超过此长度 → 转存文件 (reactive_compaction)
+HANDOFF_THRESHOLD = 6  # history 超过 8 轮 → 生成交接摘要 (T6, buzz 模式)
 DUMP_DIR = Path(__file__).resolve().parent.parent / "data" / "context_dumps"
 
 # ── 记忆缓存 (memory_extract_consolidate 最小版, 结构提案 memory_extract_min) ──
@@ -71,6 +72,7 @@ def _load_memory_cache() -> None:
     for line in MEMORY_CACHE_PATH.read_text().splitlines():
         try:
             import json as _json
+
             d = _json.loads(line)
             _memory_cache[d["query"]] = d
         except Exception:  # noqa: S112 — 坏行跳过, 不阻断加载
@@ -91,8 +93,13 @@ def _memory_put(query: str, answer: str, citations: int) -> None:
     if not query or len(answer) < 200 or citations == 0:
         return
     import json as _json
-    entry = {"query": query, "answer": answer, "citations": citations,
-             "ts": __import__("time").strftime("%Y-%m-%d %H:%M:%S")}
+
+    entry = {
+        "query": query,
+        "answer": answer,
+        "citations": citations,
+        "ts": __import__("time").strftime("%Y-%m-%d %H:%M:%S"),
+    }
     _memory_cache[query] = entry
     try:
         with MEMORY_CACHE_PATH.open("a") as f:
@@ -113,8 +120,8 @@ def _memory_stats() -> dict:
 #    合并为单条, 保留引用更高/更新者 → 同主题记忆碎片收敛
 CONSOLIDATE_ENABLED: bool = True  # memory_consolidate 落地 (evaluate passed)
 CONSOLIDATE_STATS: dict[str, int] = {"runs": 0, "consolidated": 0, "filtered": 0}
-CONSOLIDATE_MIN_CITATIONS = 2    # 低于此引用数视为低价值
-CONSOLIDATE_MAX_AGE_DAYS = 30    # 超过此天数视为陈旧
+CONSOLIDATE_MIN_CITATIONS = 2  # 低于此引用数视为低价值
+CONSOLIDATE_MAX_AGE_DAYS = 30  # 超过此天数视为陈旧
 CONSOLIDATE_SIM_THRESHOLD = 0.4  # bigram Jaccard 相似下限 (中文短 query 变体实测 0.5)
 CONSOLIDATE_MAX_LEN_RATIO = 2.5  # 长度比上限 (防短 query 误合并)
 
@@ -134,8 +141,8 @@ def _query_similar(a: str, b: str) -> bool:
     # 子串包含: "算法备案" ⊂ "算法备案需要什么材料" → 强同主题
     if na in nb or nb in na:
         return True
-    ga = {na[i:i + 2] for i in range(len(na) - 1)}
-    gb = {nb[i:i + 2] for i in range(len(nb) - 1)}
+    ga = {na[i : i + 2] for i in range(len(na) - 1)}
+    gb = {nb[i : i + 2] for i in range(len(nb) - 1)}
     if not ga or not gb:
         return na == nb
     inter = len(ga & gb)
@@ -162,7 +169,10 @@ def _memory_consolidate() -> dict:
             ts = time.mktime(time.strptime(e.get("ts", ""), "%Y-%m-%d %H:%M:%S"))
         except Exception:
             ts = now
-        if e.get("citations", 0) < CONSOLIDATE_MIN_CITATIONS and (now - ts) > CONSOLIDATE_MAX_AGE_DAYS * 86400:
+        if (
+            e.get("citations", 0) < CONSOLIDATE_MIN_CITATIONS
+            and (now - ts) > CONSOLIDATE_MAX_AGE_DAYS * 86400
+        ):
             del entries[q]
             filtered += 1
 
@@ -178,9 +188,12 @@ def _memory_consolidate() -> dict:
                 continue
             if _query_similar(keys[i], keys[j]):
                 a, b = entries[keys[i]], entries[keys[j]]
-                keep, drop = (keys[i], keys[j]) if (
-                    a.get("citations", 0), a.get("ts", "")
-                ) >= (b.get("citations", 0), b.get("ts", "")) else (keys[j], keys[i])
+                keep, drop = (
+                    (keys[i], keys[j])
+                    if (a.get("citations", 0), a.get("ts", ""))
+                    >= (b.get("citations", 0), b.get("ts", ""))
+                    else (keys[j], keys[i])
+                )
                 removed.add(drop)
                 consolidated += 1
     for q in removed:
@@ -211,8 +224,10 @@ def _dump_large_chunk(doc: str, title: str, content: str) -> str:
         return str(path)
     except Exception:
         return "context_dumps/"
-MMR_LAMBDA = 0.8          # MMR 多样性权重 (0.8 = 更贴题, A/B 通过 2026-08-10)
-USE_PARALLEL = False       # 并行检索开关 (优先级 B: 复杂查询走进程隔离子任务; A/B 提案目标)
+
+
+MMR_LAMBDA = 0.8  # MMR 多样性权重 (0.8 = 更贴题, A/B 通过 2026-08-10)
+USE_PARALLEL = False  # 并行检索开关 (优先级 B: 复杂查询走进程隔离子任务; A/B 提案目标)
 
 # ── Embedding 模型缓存 (受管组件: 身份注册 + 热替换 + 审计) ──────────────
 # 原全局单例 _model 升级为 ManagedComponent: 换模型不再需要改代码重启,
@@ -264,9 +279,10 @@ def swap_embedder(model_name: str, source: str = "manual") -> tuple:
     return old, new
 
 
-def retrieve(query: str, top_k: int = 5) -> list[dict]:
+def retrieve(query: str, top_k: int = 5, domain: str | None = None) -> list[dict]:
     """向量语义检索 — DuckDB VSS 余弦相似度 (返回 top_k*3 候选)
 
+    domain: 可选过滤 (course/compliance/sales/...) — 课程素材与合规问答分流
     客户库回退: 客户库无有效命中 (<SIM_THRESHOLD) → 自动回退全局库
     (客户库 = 客户文档 + 全局法规底座)
     """
@@ -281,20 +297,34 @@ def retrieve(query: str, top_k: int = 5) -> list[dict]:
         con.execute("INSTALL vss")
         con.execute("LOAD vss")
         con.execute("SET hnsw_enable_experimental_persistence = true")
-        rows = con.execute(f"""
+        where = "WHERE title != '文档头部'"
+        params: list = [qvec.tolist()]
+        if domain:
+            where += " AND domain = ?"
+            params.append(domain)
+        rows = con.execute(
+            f"""
             SELECT doc_name, title, content, char_len,
                    list_cosine_similarity(embedding, ?) as sim,
                    importance, fetched_at
             FROM compliance_chunks
-            WHERE title != '文档头部'
+            {where}
             ORDER BY sim DESC
             LIMIT {top_k * 5}
-        """, [qvec.tolist()]).fetchall()
+        """,
+            params,
+        ).fetchall()
         con.close()
         return [
-            {"doc": d, "title": t, "content": c[:3000], "hits": round(float(s), 3),
-             "char_len": cl, "importance": float(imp or 0.3),
-             "fetched_at": str(fa or "")}
+            {
+                "doc": d,
+                "title": t,
+                "content": c[:3000],
+                "hits": round(float(s), 3),
+                "char_len": cl,
+                "importance": float(imp or 0.3),
+                "fetched_at": str(fa or ""),
+            }
             for d, t, c, cl, s, imp, fa in rows
         ]
 
@@ -348,11 +378,14 @@ def mmr_rerank(candidates: list[dict], query_vec, top_k: int) -> list[dict]:
     return selected
 
 
-def compile_context(query: str, top_k: int = 3, mask_metadata: bool = False) -> list[dict]:
+def compile_context(
+    query: str, top_k: int = 3, mask_metadata: bool = False, domain: str | None = None
+) -> list[dict]:
     """Context Compiler: 检索 → 过滤 → 重要性加权 MMR 重排 → 长度裁剪
 
     mask_metadata=True: 观察屏蔽 (observation masking) —
       只给 LLM 文档内容, 不暴露相似度/内部评分 (防 prompt 泄露 + 防注入利用)
+    domain: 可选素材域过滤 (course/compliance/sales/...)
     """
     model = get_model()
     qvec = model.encode(query, normalize_embeddings=True)
@@ -376,15 +409,14 @@ def compile_context(query: str, top_k: int = 3, mask_metadata: bool = False) -> 
     if parallel_chunks:
         candidates = parallel_chunks
     else:
-        candidates = retrieve(query, top_k=top_k)
+        candidates = retrieve(query, top_k=top_k, domain=domain)
 
     # 2. 相似度阈值过滤
     filtered = [c for c in candidates if c["hits"] >= SIM_THRESHOLD]
 
     # 2.5 头部块过滤 (AR-05): "文档头部"块只含标题+元信息 (标题与查询字面重合,
     # 相似度高但无实质内容, 会挤占内容块位置) → 剔除, 让内容块顶上
-    filtered = [c for c in filtered
-                if not (c.get("title") == "文档头部" and c["char_len"] < 600)]
+    filtered = [c for c in filtered if not (c.get("title") == "文档头部" and c["char_len"] < 600)]
 
     # 3. MMR 多样性重排 + 重要性加权 (综合分 = λ*sim + (1-λ)*importance - (1-λ)*dup)
     reranked = mmr_rerank(filtered, qvec, top_k)
@@ -411,8 +443,14 @@ def compile_context(query: str, top_k: int = 3, mask_metadata: bool = False) -> 
     # 5. observation masking: 剥离内部元数据
     if mask_metadata:
         budgeted = [
-            {"doc": c["doc"], "title": c["title"], "content": c["content"],
-             "hits": None, "char_len": c["char_len"], "importance": None}
+            {
+                "doc": c["doc"],
+                "title": c["title"],
+                "content": c["content"],
+                "hits": None,
+                "char_len": c["char_len"],
+                "importance": None,
+            }
             for c in budgeted
         ]
 
@@ -475,14 +513,33 @@ def classify_intent(query: str) -> str:
     q = query.strip()
 
     # 指令注入 / 越狱
-    injection_kw = ["忽略", "忽略之前", "忘记", "系统提示", "system prompt", "越狱",
-                    "绕过", "以上规则不适用", "现在开始你", "扮演"]
+    injection_kw = [
+        "忽略",
+        "忽略之前",
+        "忘记",
+        "系统提示",
+        "system prompt",
+        "越狱",
+        "绕过",
+        "以上规则不适用",
+        "现在开始你",
+        "扮演",
+    ]
     if any(k in q for k in injection_kw):
         return "instruction_attack"
 
     # 角色扮演 / 私人助理
-    roleplay_kw = ["私人助理", "帮我写请假", "写一封", "你是我的", "从现在开始你",
-                   "以法务身份", "以律师身份", "请以", "法务人员吗"]
+    roleplay_kw = [
+        "私人助理",
+        "帮我写请假",
+        "写一封",
+        "你是我的",
+        "从现在开始你",
+        "以法务身份",
+        "以律师身份",
+        "请以",
+        "法务人员吗",
+    ]
     if any(k in q for k in roleplay_kw):
         return "roleplay"
 
@@ -500,10 +557,25 @@ def classify_intent(query: str) -> str:
     # 元问题 (关于系统本身 — 信任/能力/来源, 不检索直接回答)
     # AR-02 修复: "区别" 类仅在对系统/模型提问时判 meta, 防误伤合规概念对比
     # (如 "算法备案和生成式AI备案有什么区别?" 是事实查询, 不是元问题)
-    meta_kw = ["有多少把握", "谁负责", "怎么保证", "怎么证明", "信息来源",
-               "数据来源", "准确吗", "可靠吗", "最新的吗", "多久更新",
-               "和chatgpt", "和 chatgpt", "是你做的吗",
-               "你的原理", "你会出错", "错了怎么办", "怎么更新"]
+    meta_kw = [
+        "有多少把握",
+        "谁负责",
+        "怎么保证",
+        "怎么证明",
+        "信息来源",
+        "数据来源",
+        "准确吗",
+        "可靠吗",
+        "最新的吗",
+        "多久更新",
+        "和chatgpt",
+        "和 chatgpt",
+        "是你做的吗",
+        "你的原理",
+        "你会出错",
+        "错了怎么办",
+        "怎么更新",
+    ]
     if any(k in q for k in meta_kw):
         return "meta"
     if "区别" in q and any(s in q for s in ("你", "chatgpt", "你们", "系统")):
@@ -517,20 +589,23 @@ INTENT_REJECT = {
     "roleplay": "我是 AI 合规问答助手，专注于企业 AI 合规咨询。如果你有合规相关问题（算法备案、数据合规、AI 治理等），我很乐意回答。",
     "probe": "抱歉，我不能提供涉及敏感数据或内部信息的汇总。如有具体合规问题，请直接提问，我将基于公开合规资料回答。",
     "creative": "我是 AI 合规问答助手。这个问题不在合规知识库范围内，请提出企业 AI 合规相关问题。",
-    "meta": "我是基于法规知识库的 AI 合规问答助手。关于我的能力和局限：\n\n1. **信息来源**: 回答基于企业法规知识库 (算法备案/深度合成/生成式AI/数据跨境等公开法规 + 每日更新的监管情报管道)\n2. **更新机制**: 情报管道每 12 小时自动采集 (网信办官网/权威媒体), 每日 04:00 增量入库\n3. **准确度**: 每个回答带引用溯源 [文档: 章节], 可回溯原文; 关键决策请以国家网信办官网 (cac.gov.cn) 为准\n4. **局限**: 知识库未覆盖的问题会明确说\"未找到\", 不编造; 具体企业个案建议结合专业律师意见\n\n**我的价值**: 把\"查法规\"从 2 小时变成 3 秒, 且每条答案可溯源验证。",
+    "meta": '我是基于法规知识库的 AI 合规问答助手。关于我的能力和局限：\n\n1. **信息来源**: 回答基于企业法规知识库 (算法备案/深度合成/生成式AI/数据跨境等公开法规 + 每日更新的监管情报管道)\n2. **更新机制**: 情报管道每 12 小时自动采集 (网信办官网/权威媒体), 每日 04:00 增量入库\n3. **准确度**: 每个回答带引用溯源 [文档: 章节], 可回溯原文; 关键决策请以国家网信办官网 (cac.gov.cn) 为准\n4. **局限**: 知识库未覆盖的问题会明确说"未找到", 不编造; 具体企业个案建议结合专业律师意见\n\n**我的价值**: 把"查法规"从 2 小时变成 3 秒, 且每条答案可溯源验证。',
 }
 
 # Loop Detection 单例 (DeerFlow 模式: 重复检索模式 → 终止)
 try:
     from experiments.loop_detection import LoopDetector
 
-    _loop_detector: LoopDetector | None = LoopDetector(window_size=10, warn_threshold=3, hard_threshold=5)
+    _loop_detector: LoopDetector | None = LoopDetector(
+        window_size=10, warn_threshold=3, hard_threshold=5
+    )
 except Exception:
     _loop_detector = None
 
 
-def _generate_handoff(history: list[dict[str, str]], api_key: str, model_name: str,
-                      tracer) -> str | None:
+def _generate_handoff(
+    history: list[dict[str, str]], api_key: str, model_name: str, tracer
+) -> str | None:
     """T6: 生成上下文交接摘要 (buzz handoff.rs 模式)
 
     长对话 (>HANDOFF_THRESHOLD 轮) → LLM 提炼: 原任务/已完成/下一步
@@ -543,9 +618,7 @@ def _generate_handoff(history: list[dict[str, str]], api_key: str, model_name: s
 
     # 只取最近的对话做摘要 (全量太长)
     recent = history[-10:]
-    compact = "\n".join(
-        f"{m['role']}: {m['content'][:200]}" for m in recent
-    )
+    compact = "\n".join(f"{m['role']}: {m['content'][:200]}" for m in recent)
     try:
         resp = audited_post(
             "https://api.deepseek.com/v1/chat/completions",
@@ -553,12 +626,16 @@ def _generate_handoff(history: list[dict[str, str]], api_key: str, model_name: s
             json={
                 "model": model_name,
                 "messages": [
-                    {"role": "system", "content": (
-                        "You are generating a context handoff summary for the next "
-                        "turn of an assistant. Be concise but thorough. Cover: "
-                        "1) what the original task was, 2) what was already done, "
-                        "3) what is next / open questions. Output in Chinese, "
-                        "under 200 words.")},
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are generating a context handoff summary for the next "
+                            "turn of an assistant. Be concise but thorough. Cover: "
+                            "1) what the original task was, 2) what was already done, "
+                            "3) what is next / open questions. Output in Chinese, "
+                            "under 200 words."
+                        ),
+                    },
                     {"role": "user", "content": compact},
                 ],
                 "temperature": 0.2,
@@ -575,8 +652,13 @@ def _generate_handoff(history: list[dict[str, str]], api_key: str, model_name: s
         # 摘要型压缩审计: 被折叠 = 未进入摘要输入窗口的早期历史 (hash 元数据)
         dropped = history[:-10] if len(history) > 10 else []
         summary_text = f"[会话交接摘要] {text}"
-        cid = audit_compaction_start("compliance_qa._generate_handoff", "handoff_summary",
-                                     dropped, kept_count=3, summary=summary_text)
+        cid = audit_compaction_start(
+            "compliance_qa._generate_handoff",
+            "handoff_summary",
+            dropped,
+            kept_count=3,
+            summary=summary_text,
+        )
         audit_compaction_end(cid, ok=True)
         return summary_text
     except Exception:
@@ -590,8 +672,12 @@ GUARD_STATS: dict[str, int] = {"intent": 0, "budget": 0, "loop": 0}
 # ── 生成后过程验证钩子 (postgen_verify): 返回前轻量质量检查 → Process 信号 ──
 # A/B 开关 (harness_evolve evaluate 变异控制); 只检测记录, 不修改回答内容 (行为不变)
 VERIFY_ENABLED: bool = True  # postgen_verify 落地 (evaluate passed)
-VERIFY_STATS: dict[str, int] = {"checked": 0, "inconsistent_citation": 0,
-                                 "contradiction": 0, "short_answer": 0}
+VERIFY_STATS: dict[str, int] = {
+    "checked": 0,
+    "inconsistent_citation": 0,
+    "contradiction": 0,
+    "short_answer": 0,
+}
 
 # ── 缓存命中统计 (P1-A: 验证器信号强化) ──
 # 缓存命中率趋势 = 防投机信号 (参数变异不应改变命中率; 若变异让缓存大量失效 → 可疑)
@@ -619,15 +705,14 @@ def _gap_note(answer_text: str, chunks: list[dict] | None) -> str:
             fa = c.get("fetched_at", "")
             if fa:
                 from datetime import timezone as _tz
-                age_days = (datetime.now(_tz.utc)
-                            - datetime.fromisoformat(fa)).days
+
+                age_days = (datetime.now(_tz.utc) - datetime.fromisoformat(fa)).days
                 if age_days > 90:
                     stale_docs[c["doc"]] = f"{age_days} 天前"
     except Exception:
         pass
     if stale_docs:
-        names = ", ".join(f"{k} ({v})" for k, v in
-                          list(stale_docs.items())[:3])
+        names = ", ".join(f"{k} ({v})" for k, v in list(stale_docs.items())[:3])
         gaps.append(f"⚠️ 时效提示: 引用的部分文档已较旧 ({names}), 建议核对最新法规动态")
 
     # 2. 无引用检测 (回答正文无 [文档: 标记)
@@ -650,21 +735,27 @@ def _verify_answer(answer_text: str, chunks: list[dict] | None) -> dict:
     # 引用清单 (引用来源: 段) 也算引用 — 但 "无" 不算
     m = re.search(r"引用来源[：:]\s*", answer_text)
     if m:
-        for line in answer_text[m.end():].splitlines():
+        for line in answer_text[m.end() :].splitlines():
             line = line.strip().lstrip("-*·•").strip()
             if line and line != "无":
                 cited.add(line)
     inconsistent = sorted(cited - doc_set) if doc_set is not None else []
-    contradiction = (("未找到" in answer_text or "无法提供" in answer_text) and bool(cited)) \
-        or ("引用来源：无" in answer_text and bool(cited))
+    contradiction = (("未找到" in answer_text or "无法提供" in answer_text) and bool(cited)) or (
+        "引用来源：无" in answer_text and bool(cited)
+    )
     short = len(answer_text.strip()) < 100 and not cited
-    return {"checked": True, "inconsistent": inconsistent,
-            "inconsistent_count": len(inconsistent),
-            "contradiction": contradiction, "short_answer": short}
+    return {
+        "checked": True,
+        "inconsistent": inconsistent,
+        "inconsistent_count": len(inconsistent),
+        "contradiction": contradiction,
+        "short_answer": short,
+    }
 
 
-def _guards_run(query: str, chunks: list[dict], budget: dict | None,
-                t0: float, tracer) -> str | None:
+def _guards_run(
+    query: str, chunks: list[dict], budget: dict | None, t0: float, tracer
+) -> str | None:
     """执行护栏链 → 返回拒绝/终止消息或 None (放行)
 
     当前守卫 (按序):
@@ -679,8 +770,9 @@ def _guards_run(query: str, chunks: list[dict], budget: dict | None,
     if intent != "factual_query":
         GUARD_STATS["intent"] += 1
         rejection = INTENT_REJECT.get(intent, INTENT_REJECT["instruction_attack"])
-        _record_metric(query, (time.time() - t0) * 1000, 0, 0, None, None, True,
-                       error=f"intent:{intent}")
+        _record_metric(
+            query, (time.time() - t0) * 1000, 0, 0, None, None, True, error=f"intent:{intent}"
+        )
         if tracer:
             tracer.step("reject", {"intent": intent})
             tracer.save({"success": True, "intent": intent, "rejected": True})
@@ -694,8 +786,16 @@ def _guards_run(query: str, chunks: list[dict], budget: dict | None,
             check = TokenBudget(**budget).check()
             if not check["allowed"]:
                 GUARD_STATS["budget"] += 1
-                _record_metric(query, (time.time() - t0) * 1000, 0, 0, 0, 0,
-                               True, error=f"budget:{check['reason']}")
+                _record_metric(
+                    query,
+                    (time.time() - t0) * 1000,
+                    0,
+                    0,
+                    0,
+                    0,
+                    True,
+                    error=f"budget:{check['reason']}",
+                )
                 return f"⚠️ 会话预算已用尽 ({check['reason']})。请开始新会话。\n\n引用来源：无（预算限制）"
         except Exception:
             pass  # 预算检查失败不阻断
@@ -708,8 +808,9 @@ def _guards_run(query: str, chunks: list[dict], budget: dict | None,
         status = _loop_detector.record(fp) if _loop_detector else "ok"
         if status == "capped":
             GUARD_STATS["loop"] += 1
-            _record_metric(query, (time.time() - t0) * 1000, len(chunks), 0, 0, 0,
-                           True, error="loop_capped")
+            _record_metric(
+                query, (time.time() - t0) * 1000, len(chunks), 0, 0, 0, True, error="loop_capped"
+            )
             return "⚠️ 检测到重复检索循环 (loop_capped)，已停止以避免浪费。请换一种问法或开始新话题。\n\n引用来源：无（循环终止）"
     except Exception:
         pass  # 循环检测失败不阻断
@@ -722,10 +823,18 @@ def _guard_stats() -> dict:
     return dict(GUARD_STATS)
 
 
-def answer(query: str, top_k: int = 3, mask_metadata: bool = True,
-           history: list[dict[str, str]] | None = None,
-           budget: dict | None = None, use_cache: bool = True) -> str:
+def answer(
+    query: str,
+    top_k: int = 3,
+    mask_metadata: bool = True,
+    history: list[dict[str, str]] | None = None,
+    budget: dict | None = None,
+    use_cache: bool = True,
+    domain: str | None = None,
+) -> str:
     """检索 + DeepSeek 回答 (带引用) + 可观测性埋点
+
+    domain: 可选素材域过滤 (course/compliance/sales/...) — 课程/合规分流
 
     mask_metadata=True (默认): 生产回答屏蔽内部评分 (observation masking),
     检索依据仅供展示层 (前端单独用 compile_context 获取)
@@ -746,9 +855,17 @@ def answer(query: str, top_k: int = 3, mask_metadata: bool = True,
     if not history and use_cache:  # 多轮对话不缓存 (上下文相关); eval 模式跳过
         hit = _memory_get(query)
         if hit:
-            _record_metric(query, (time.time() - t0) * 1000, 0,
-                           hit.get("citations", 0), 0, 0, True,
-                           model="memory_cache", cache_hit=True)
+            _record_metric(
+                query,
+                (time.time() - t0) * 1000,
+                0,
+                hit.get("citations", 0),
+                0,
+                0,
+                True,
+                model="memory_cache",
+                cache_hit=True,
+            )
             if tracer:
                 tracer.step("memory_hit", {"citations": hit.get("citations", 0)})
                 tracer.save({"success": True, "model": "memory_cache"})
@@ -771,7 +888,7 @@ def answer(query: str, top_k: int = 3, mask_metadata: bool = True,
 
     # ── 中间件链执行 (middleware_min): 意图/预算/loop 守卫按序运行 ──
     # 先编译检索块 (loop 守卫需要 chunks 指纹; budget 守卫独立)
-    chunks = compile_context(query, top_k, mask_metadata=False)
+    chunks = compile_context(query, top_k, mask_metadata=False, domain=domain)
     compile_ms = (time.time() - t0) * 1000
 
     guard_stop = _guards_run(query, chunks, budget, t0, tracer)
@@ -779,34 +896,56 @@ def answer(query: str, top_k: int = 3, mask_metadata: bool = True,
         return guard_stop
 
     if tracer:
-        tracer.step("retrieve", {"chunks": len(chunks), "top_sim": round(chunks[0]["hits"], 3) if chunks else 0,
-                                 "docs": sorted({c["doc"] for c in chunks})[:3]})
+        tracer.step(
+            "retrieve",
+            {
+                "chunks": len(chunks),
+                "top_sim": round(chunks[0]["hits"], 3) if chunks else 0,
+                "docs": sorted({c["doc"] for c in chunks})[:3],
+            },
+        )
     if not chunks:
         _record_metric(query, compile_ms, 0, 0, None, None, False, "no_chunks")
         if tracer:
             tracer.save({"success": False, "error": "no_chunks"})
-        return ("未找到相关文档。换个问法试试。\n\n"
-                "💡 提示: 如果是查询具体模型/企业的备案状态 (事实性信息), "
-                "知识库可能未收录最新备案清单。可:\n"
-                "1. 到国家网信办官网备案系统核查\n"
-                "2. 联系我们补充该数据源到知识库")
+        return (
+            "未找到相关文档。换个问法试试。\n\n"
+            "💡 提示: 如果是查询具体模型/企业的备案状态 (事实性信息), "
+            "知识库可能未收录最新备案清单。可:\n"
+            "1. 到国家网信办官网备案系统核查\n"
+            "2. 联系我们补充该数据源到知识库"
+        )
 
     # Model 路由 (用未屏蔽的相似度决策)
     model_name = _route_model(query, chunks)
 
     if tracer:
-        tracer.step("route", {"model": model_name, "avg_sim": round(sum(c["hits"] for c in chunks) / len(chunks), 3)})
+        tracer.step(
+            "route",
+            {
+                "model": model_name,
+                "avg_sim": round(sum(c["hits"] for c in chunks) / len(chunks), 3),
+            },
+        )
 
     # observation masking: 生产回答剥离内部评分
     if mask_metadata:
         chunks = [
-            {"doc": c["doc"], "title": c["title"], "content": c["content"],
-             "hits": None, "char_len": c["char_len"], "importance": None}
+            {
+                "doc": c["doc"],
+                "title": c["title"],
+                "content": c["content"],
+                "hits": None,
+                "char_len": c["char_len"],
+                "importance": None,
+            }
             for c in chunks
         ]
     if tracer:
-        tracer.step("compile", {"final_chunks": len(chunks),
-                                "total_chars": sum(c["char_len"] or 0 for c in chunks)})
+        tracer.step(
+            "compile",
+            {"final_chunks": len(chunks), "total_chars": sum(c["char_len"] or 0 for c in chunks)},
+        )
 
     # 构建上下文
     context = "\n\n---\n\n".join(
@@ -847,10 +986,12 @@ def answer(query: str, top_k: int = 3, mask_metadata: bool = True,
                 messages.extend(history)  # 摘要失败 → 原样 (降级)
         else:
             messages.extend(history)  # append-only, 不重写不排序
-    messages.append({
-        "role": "user",
-        "content": f"参考资料:\n{context}\n\n问题: {query}",
-    })
+    messages.append(
+        {
+            "role": "user",
+            "content": f"参考资料:\n{context}\n\n问题: {query}",
+        }
+    )
 
     try:
         resp = audited_post(
@@ -871,8 +1012,17 @@ def answer(query: str, top_k: int = 3, mask_metadata: bool = True,
             result = _reactive_compact(messages, history)
             if result is not None:
                 compacted, _dropped, cid = result
-                return _llm_call_with_retry(api_key, compacted, model_name, query, chunks,
-                                            history, t0, tracer, compaction_id=cid)
+                return _llm_call_with_retry(
+                    api_key,
+                    compacted,
+                    model_name,
+                    query,
+                    chunks,
+                    history,
+                    t0,
+                    tracer,
+                    compaction_id=cid,
+                )
         answer_text = data["choices"][0]["message"]["content"]
         # 空回答重试 (上游偶发空 content — Error Handling)
         if not answer_text or not answer_text.strip():
@@ -882,16 +1032,31 @@ def answer(query: str, top_k: int = 3, mask_metadata: bool = True,
         citations = answer_text.count("文档:")
         # PrefixCache 命中估算: 有 history (追加式) → 前缀稳定 → 命中
         cache_hit = bool(history)
-        _record_metric(query, (time.time() - t0) * 1000, len(chunks), citations,
-                       tokens_in_estimate, tokens_out, True, model=model_name,
-                       cache_hit=cache_hit)
+        _record_metric(
+            query,
+            (time.time() - t0) * 1000,
+            len(chunks),
+            citations,
+            tokens_in_estimate,
+            tokens_out,
+            True,
+            model=model_name,
+            cache_hit=cache_hit,
+        )
         # ── 记忆写入 (memory_extract_min): 成功且有引用 → 缓存供重复查询命中 ──
         if not history and use_cache:  # eval 模式不污染生产缓存
             _memory_put(query, answer_text, citations)
         if tracer:
-            tracer.step("answer", {"model": model_name, "tokens_in": tokens_in_estimate,
-                                   "tokens_out": tokens_out, "citations": citations,
-                                   "answer_len": len(answer_text)})
+            tracer.step(
+                "answer",
+                {
+                    "model": model_name,
+                    "tokens_in": tokens_in_estimate,
+                    "tokens_out": tokens_out,
+                    "citations": citations,
+                    "answer_len": len(answer_text),
+                },
+            )
             tracer.save({"success": True, "model": model_name, "citations": citations})
         # ── 生成后过程验证钩子 (postgen_verify): 返回前轻量检查 → Process 信号 ──
         if VERIFY_ENABLED:
@@ -901,9 +1066,14 @@ def answer(query: str, top_k: int = 3, mask_metadata: bool = True,
             VERIFY_STATS["contradiction"] += int(v["contradiction"])
             VERIFY_STATS["short_answer"] += int(v["short_answer"])
             if tracer:
-                tracer.step("verify", {"inconsistent": v["inconsistent_count"],
-                                       "contradiction": v["contradiction"],
-                                       "short_answer": v["short_answer"]})
+                tracer.step(
+                    "verify",
+                    {
+                        "inconsistent": v["inconsistent_count"],
+                        "contradiction": v["contradiction"],
+                        "short_answer": v["short_answer"],
+                    },
+                )
         # ── 记忆巩固 (memory_consolidate): 过滤陈旧低价值 + 合并相似 query → Process 信号 ──
         if CONSOLIDATE_ENABLED:
             CONSOLIDATE_STATS["runs"] += 1
@@ -918,8 +1088,16 @@ def answer(query: str, top_k: int = 3, mask_metadata: bool = True,
             answer_text = answer_text.rstrip() + "\n\n" + gap
         return answer_text
     except Exception as e:
-        _record_metric(query, (time.time() - t0) * 1000, len(chunks), 0,
-                       tokens_in_estimate, 0, False, str(e)[:80])
+        _record_metric(
+            query,
+            (time.time() - t0) * 1000,
+            len(chunks),
+            0,
+            tokens_in_estimate,
+            0,
+            False,
+            str(e)[:80],
+        )
         if tracer:
             tracer.step("error", {"error": str(e)[:100]})
             tracer.save({"success": False, "error": str(e)[:100]})
@@ -948,10 +1126,16 @@ def _retry_empty_answer(api_key: str, messages: list[dict[str, str]], model_name
             return text
     except Exception:
         pass
-    return "抱歉，模型暂时无法生成回答，请稍后重试。" + "\n\n(回答为空 — 上游模型偶发异常，已重试)" + "\n\n引用来源：无（未生成回答）"
+    return (
+        "抱歉，模型暂时无法生成回答，请稍后重试。"
+        + "\n\n(回答为空 — 上游模型偶发异常，已重试)"
+        + "\n\n引用来源：无（未生成回答）"
+    )
 
 
-def _reactive_compact(messages: list[dict], history: list[dict] | None) -> tuple[list[dict], list[dict], str] | None:
+def _reactive_compact(
+    messages: list[dict], history: list[dict] | None
+) -> tuple[list[dict], list[dict], str] | None:
     """反应式压缩: prompt_is_too_long → 保留 system + 最近 4 轮, 其余丢弃
     (mini-claude-code 思路: 错误永不暴露给用户)
     统一经 compact_and_audit (压缩审计为强制副作用, 不可绕过)。
@@ -959,16 +1143,25 @@ def _reactive_compact(messages: list[dict], history: list[dict] | None) -> tuple
     """
     from pulse.llm_audit import compact_and_audit
 
-    rec = compact_and_audit(messages, history, "prompt_is_too_long",
-                            "compliance_qa.answer", keep_last_n=6)
+    rec = compact_and_audit(
+        messages, history, "prompt_is_too_long", "compliance_qa.answer", keep_last_n=6
+    )
     if rec is None:
         return None
     return rec.compacted, rec.dropped, rec.compaction_id
 
 
-def _llm_call_with_retry(api_key: str, messages: list[dict], model_name: str,
-                         query: str, chunks: list[dict], history: list[dict] | None,
-                         t0: float, tracer, compaction_id: str | None = None) -> str:
+def _llm_call_with_retry(
+    api_key: str,
+    messages: list[dict],
+    model_name: str,
+    query: str,
+    chunks: list[dict],
+    history: list[dict] | None,
+    t0: float,
+    tracer,
+    compaction_id: str | None = None,
+) -> str:
     """压缩后重发请求 (反应式压缩的第二阶段); compaction_id 用于压缩审计配对。"""
     from pulse.llm_audit import audit_compaction_end, audited_post
 
@@ -976,8 +1169,12 @@ def _llm_call_with_retry(api_key: str, messages: list[dict], model_name: str,
         resp = audited_post(
             "https://api.deepseek.com/v1/chat/completions",
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json={"model": model_name, "messages": messages,
-                  "temperature": 0.3, "max_tokens": 1000},
+            json={
+                "model": model_name,
+                "messages": messages,
+                "temperature": 0.3,
+                "max_tokens": 1000,
+            },
             timeout=60,
             source="compliance_qa._llm_call_with_retry",
         )
@@ -985,14 +1182,28 @@ def _llm_call_with_retry(api_key: str, messages: list[dict], model_name: str,
         answer_text = data["choices"][0]["message"]["content"]
         tokens_out = data.get("usage", {}).get("completion_tokens", len(answer_text) // 2)
         citations = answer_text.count("文档:")
-        _record_metric(query, (time.time() - t0) * 1000, len(chunks), citations,
-                       len(json.dumps(messages, ensure_ascii=False)) // 2, tokens_out,
-                       True, model=model_name, cache_hit=bool(history),
-                       reactive_compact=True)
+        _record_metric(
+            query,
+            (time.time() - t0) * 1000,
+            len(chunks),
+            citations,
+            len(json.dumps(messages, ensure_ascii=False)) // 2,
+            tokens_out,
+            True,
+            model=model_name,
+            cache_hit=bool(history),
+            reactive_compact=True,
+        )
         if tracer:
             tracer.step("reactive_compact", {"tokens_out": tokens_out, "citations": citations})
-            tracer.save({"success": True, "model": model_name, "citations": citations,
-                         "reactive_compact": True})
+            tracer.save(
+                {
+                    "success": True,
+                    "model": model_name,
+                    "citations": citations,
+                    "reactive_compact": True,
+                }
+            )
         if compaction_id:
             audit_compaction_end(compaction_id, ok=True)
         return answer_text
@@ -1002,18 +1213,36 @@ def _llm_call_with_retry(api_key: str, messages: list[dict], model_name: str,
         return "抱歉，上下文过长且压缩重试失败，请开始新对话。\n\n(上下文超限 — 已尝试自动压缩)"
 
 
-
-def _record_metric(query: str, ms: float, chunks: int, citations: int,
-                   tokens_in: int | None, tokens_out: int | None, success: bool,
-                   error: str = "",
-                   model: str = "deepseek-chat", cache_hit: bool | None = None,
-                   reactive_compact: bool = False) -> None:
+def _record_metric(
+    query: str,
+    ms: float,
+    chunks: int,
+    citations: int,
+    tokens_in: int | None,
+    tokens_out: int | None,
+    success: bool,
+    error: str = "",
+    model: str = "deepseek-chat",
+    cache_hit: bool | None = None,
+    reactive_compact: bool = False,
+) -> None:
     """记录问答指标 (失败不阻断主流程)"""
     try:
         from compliance_metrics import record
 
-        record(query, ms, chunks, citations, tokens_in, tokens_out, success, error,
-               model, cache_hit, reactive_compact)
+        record(
+            query,
+            ms,
+            chunks,
+            citations,
+            tokens_in,
+            tokens_out,
+            success,
+            error,
+            model,
+            cache_hit,
+            reactive_compact,
+        )
     except Exception:
         pass
 
