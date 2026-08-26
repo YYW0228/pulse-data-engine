@@ -1,0 +1,13 @@
+{
+  "title": "Prompt Engineering Full Course",
+  "channel": "Tech With Tim",
+  "url": "https://www.youtube.com/watch?v=2BpCk4d2Cc0",
+  "video_id": "2BpCk4d2Cc0",
+  "duration": "37:44",
+  "ingested_at": "2026-08-26T21:38:21.504727+00:00",
+  "transcript_source": "subtitle",
+  "self_score": 60,
+  "language": "auto",
+  "ingest_engine": "local-qwen3.5-9b",
+  "domain": "course"
+}
