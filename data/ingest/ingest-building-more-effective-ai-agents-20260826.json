@@ -1,0 +1,13 @@
+{
+  "title": "Building more effective AI agents",
+  "channel": "Anthropic",
+  "url": "https://www.youtube.com/watch?v=uhJJgc-0iTQ",
+  "video_id": "uhJJgc-0iTQ",
+  "duration": "18:58",
+  "ingested_at": "2026-08-26T20:58:13.207793+00:00",
+  "transcript_source": "subtitle",
+  "self_score": 60,
+  "language": "auto",
+  "ingest_engine": "local-qwen3.5-9b",
+  "domain": "course"
+}

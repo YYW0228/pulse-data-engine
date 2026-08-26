@@ -4,10 +4,12 @@
   "source": "course_gap",
   "priority": 2,
   "expected_value": 6,
-  "context_question": "",
+  "context_question": "本地批量生产: AI智能体入门",
   "status": "approved",
   "approved_at": "2026-08-25T18:59:22.776395+00:00",
   "done_at": null,
-  "candidates_urls": [],
+  "candidates_urls": [
+    "https://www.youtube.com/watch?v=uhJJgc-0iTQ"
+  ],
   "created_at": "2026-08-25T18:59:22.660378+00:00"
 }
