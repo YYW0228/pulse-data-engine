@@ -7,9 +7,10 @@
   "context_question": "本地批量生产: AI智能体入门",
   "status": "approved",
   "approved_at": "2026-08-25T18:59:22.776395+00:00",
-  "done_at": null,
+  "done_at": "2026-08-26T20:58:16.568919+00:00",
   "candidates_urls": [
     "https://www.youtube.com/watch?v=uhJJgc-0iTQ"
   ],
-  "created_at": "2026-08-25T18:59:22.660378+00:00"
+  "created_at": "2026-08-25T18:59:22.660378+00:00",
+  "consumed_url": "https://www.youtube.com/watch?v=uhJJgc-0iTQ"
 }

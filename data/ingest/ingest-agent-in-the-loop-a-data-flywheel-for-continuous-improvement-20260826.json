@@ -1,0 +1,13 @@
+{
+  "title": "Agent-in-the-Loop A Data Flywheel for Continuous Improvement in LLM-based Customer Support",
+  "channel": "Mayuresh Shilotri",
+  "url": "https://www.youtube.com/watch?v=q0L_EnGlCes",
+  "video_id": "q0L_EnGlCes",
+  "duration": "6:57",
+  "ingested_at": "2026-08-26T21:07:05.550546+00:00",
+  "transcript_source": "subtitle",
+  "self_score": 60,
+  "language": "auto",
+  "ingest_engine": "local-qwen3.5-9b",
+  "domain": "course"
+}
