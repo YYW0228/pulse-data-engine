@@ -39,8 +39,6 @@ YTDLP_BASE = [
     "yt-dlp",
     "--cookies-from-browser",
     "brave",
-    "--extractor-args",
-    "youtube:player-client=ios,android_embedded,web",
 ]
 
 SYSTEM_PROMPT = (
@@ -209,30 +207,33 @@ def llm_chat(prompt: str, llm_url: str, max_tokens: int = 1600, system: str | No
 
 
 def digest(transcript: Path, meta: dict, llm_url: str) -> str:
-    """本地 LLM 分段吞噬 → 6 段结构素材"""
+    """本地 LLM 分段吞噬 → 6 段结构素材 (动态分段: 每段 ≤24000 字符防 ctx 超限)"""
     full = transcript.read_text(encoding="utf-8")
-    mid = len(full) // 2
-    print(f"[ingest] 转录 {len(full)} 字符, 分段吞噬...", flush=True)
-    s1 = llm_chat(
-        "以下是英文视频转录前半段。请输出:\n1) 章节要点(3-6条, 按主题分, 标注大致时间区间)\n2) 关键概念(术语+一句话中文解释)\n转录:\n"
-        + full[:mid],
-        llm_url,
-    )
-    s2 = llm_chat(
-        "以下是英文视频转录后半段。请输出:\n1) 章节要点(3-6条, 按主题分, 标注大致时间区间)\n2) 关键概念(术语+一句话中文解释)\n转录:\n"
-        + full[mid:],
-        llm_url,
+    CHUNK_CHARS = 24000  # ~6K tokens, 远低于 12288 ctx 上限
+    parts = [full[i : i + CHUNK_CHARS] for i in range(0, len(full), CHUNK_CHARS)]
+    print(f"[ingest] 转录 {len(full)} 字符 → {len(parts)} 段, 分段吞噬...", flush=True)
+    summaries = []
+    for idx, part in enumerate(parts, 1):
+        s = llm_chat(
+            f"以下是英文视频转录第 {idx}/{len(parts)} 段。请输出:\n1) 章节要点(3-6条, 按主题分, 标注大致时间区间)\n2) 关键概念(术语+一句话中文解释)\n转录:\n"
+            + part,
+            llm_url,
+        )
+        summaries.append(s)
+        print(f"[ingest] 段 {idx}/{len(parts)} 吞噬完成", flush=True)
+    combined = "\n\n".join(
+        f"=== 第{i+1}段摘要 ===\n{s}" for i, s in enumerate(summaries)
     )
     print("[ingest] 汇总 6 段结构...", flush=True)
     return llm_chat(
-        "基于以下两段素材摘要, 按模板生成6段结构的中文课程素材:\n"
+        "基于以下多段素材摘要, 按模板生成6段结构的中文课程素材:\n"
         "一、核心论点 (TL;DR)\n二、章节摘要 (含时间戳)\n三、关键概念卡片\n"
         "四、金句 (可作课程引用, 中英对照)\n五、与主线课程/本司架构的映射\n六、参考练习题\n\n"
         f"信源信息: 标题 '{meta['title']}', 作者 {meta['channel']}, 时长 {meta['duration']}, "
         f"URL {meta['url']}, 吞噬日期 {datetime.now(timezone.utc).date().isoformat()}。\n"
         "第五段可提及: 本司 RAG 架构用 DuckDB VSS + bge-small-zh 向量检索 + DeepSeek 生成, "
         "有引用验证门禁与 llm_audit 审计不变量; 不得虚构其他系统细节。\n\n"
-        f"=== 前半段摘要 ===\n{s1}\n\n=== 后半段摘要 ===\n{s2}\n\n生成完整6段结构素材:",
+        f"{combined}\n\n生成完整6段结构素材:",
         max_tokens=2500,
         system=SYSTEM_PROMPT + "你是主线业务课程素材主编。",
         llm_url=llm_url,
