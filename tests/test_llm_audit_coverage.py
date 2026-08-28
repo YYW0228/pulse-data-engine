@@ -23,6 +23,8 @@ EXCLUDE_FILES = {
     # 无外部可见性/成本, 不在 Model-visible=Logged 审计范围
     "ingest_produce.py",
     "ingest_review.py",
+    # flywheel 候选技能生成: 同款本地 llama 链路 (127.0.0.1:8080), 无外部可见性
+    "generate_candidate.py",
 }
 
 
