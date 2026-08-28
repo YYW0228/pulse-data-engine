@@ -1,0 +1,21 @@
+{
+  "id": "m2max-20260829-f005",
+  "created_at": "2026-08-26T15:00:00+08:00",
+  "host": "m2max",
+  "project": "pulse-data-engine",
+  "domain": "internal-ops",
+  "workflow": "ingest_produce",
+  "harness": "hermes",
+  "skill": "rag-material-factory",
+  "instruction": "吞噬视频素材 (YouTube)",
+  "input_hash": "f005aabbccddeeff",
+  "context_tokens_before": 1500,
+  "context_tokens_after": 1800,
+  "failure_modes": ["missing-error-handling"],
+  "target_use": "skill-gen",
+  "raw_input_stored": false,
+  "caught_stage": "manual",
+  "message": "yt-dlp -f bestaudio 报 Requested format is not available, 视频只有 m3u8 流, 需要 M3U8 直抓 + ffmpeg 转码",
+  "command": "yt-dlp -f bestaudio <url>",
+  "redaction_status": "passed"
+}

@@ -1,0 +1,1 @@
+{"id": "prom-20260829-011503", "proposal": "3f58848d6a0c", "skill_name": "M3U8-流媒体抓取与转码", "target": "/Users/mac/.hermes/skills/data-engineering/rag-material-factory/SKILL.md", "rationale": "首次飞轮闭环: m3u8 失败模式由 2 条真实痕迹聚类晋升, 与既有坑互证", "promoted_at": "2026-08-29T01:15:03+08:00", "rollback_until": "2026-09-05T01:15:03+08:00", "status": "active"}
