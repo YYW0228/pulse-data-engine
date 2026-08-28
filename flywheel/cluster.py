@@ -88,9 +88,9 @@ def build_patterns(clusters: list[list[dict]]) -> list[dict]:
         msgs = [f.get("message", "") for f in cl]
         seed = norm_text(msgs[0]) or cl[0].get("id", "unknown")
         pid = pattern_id(seed)
-        modes = Counter()
-        hosts = Counter()
-        stages = Counter()
+        modes: Counter[str] = Counter()
+        hosts: Counter[str] = Counter()
+        stages: Counter[str] = Counter()
         first = min(f.get("created_at", "9999") for f in cl)
         for f in cl:
             for m in f.get("failure_modes", []):
