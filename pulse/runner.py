@@ -1,3 +1,4 @@
+# mypy: disable-error-code=untyped-decorator
 """
 pulse/runner.py — DAG 任务定义 + 7x24 运行入口
 

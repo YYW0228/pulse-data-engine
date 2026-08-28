@@ -130,7 +130,7 @@ def build_repo_context(repo: Path, goal: str) -> str:
             parts.append(f"\n## {name}\n```\n{read_file_head(p, 40)}\n```")
             break
     # 主要源码文件 (前 5 个)
-    src_files = []
+    src_files: list = []
     for pattern in ("*.py", "*.ts", "*.js", "*.go", "*.rs", "*.sh"):
         src_files.extend(repo.glob(pattern))
     src_files = [f for f in src_files if "node_modules" not in str(f)][:5]

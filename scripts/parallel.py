@@ -187,7 +187,7 @@ def parallel_retrieve(query: str, top_k: int = 3, customer_db: str | None = None
     results: dict[str, list[dict]] = {}
     errors: dict[str, str] = {}
     with ThreadPoolExecutor(max_workers=max(2, len(tasks))) as ex:
-        futures = {ex.submit(fn): name for name, fn in tasks}
+        futures: dict = {ex.submit(fn): name for name, fn in tasks}
         for fut in as_completed(futures):
             name = futures[fut]
             try:
