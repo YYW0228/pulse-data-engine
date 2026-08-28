@@ -66,13 +66,21 @@ def load_failures() -> list[dict]:
 
 
 def cluster(failures: list[dict]) -> list[list[dict]]:
-    """Jaccard 贪心聚类 → 簇列表 (≥2 条才保留为 pattern)"""
-    records = [(f, word_set(f.get("message", "") + " " + f.get("command", ""))) for f in failures]
+    """Jaccard 贪心聚类 → 簇列表 (≥2 条才保留为 pattern)
+    特征 = message + command + failure_modes (同模式不同文本的失败才能聚到一起)"""
+    def feats(f: dict) -> set[str]:
+        text = f.get("message", "") + " " + f.get("command", "")
+        ws = word_set(text)
+        for m in f.get("failure_modes", []):
+            ws.add(f"mode:{m}")
+        return ws
+
+    records = [(f, feats(f)) for f in failures]
     clusters: list[list[dict]] = []
     for rec, ws in records:
         placed = False
         for cl in clusters:
-            rep = word_set(cl[0].get("message", "") + " " + cl[0].get("command", ""))
+            rep = feats(cl[0])
             if jaccard(ws, rep) >= CLUSTER_SIMILARITY:
                 cl.append(rec)
                 placed = True
