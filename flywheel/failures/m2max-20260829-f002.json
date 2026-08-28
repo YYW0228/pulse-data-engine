@@ -1,0 +1,21 @@
+{
+  "id": "m2max-20260829-f002",
+  "created_at": "2026-08-29T00:15:00+08:00",
+  "host": "m2max",
+  "project": "trio-infra",
+  "domain": "internal-ops",
+  "workflow": "git-sync",
+  "harness": "hermes",
+  "skill": "github-pr-workflow",
+  "instruction": "推送飞轮地基代码",
+  "input_hash": "f002aabbccddeeff",
+  "context_tokens_before": 700,
+  "context_tokens_after": 850,
+  "failure_modes": ["contract-drift"],
+  "target_use": "rule-fix",
+  "raw_input_stored": false,
+  "caught_stage": "pr",
+  "message": "git push 被拒 non-fast-forward: 远端有素材工厂批量提交, 本地未 pull 直接 push 撞车",
+  "command": "git push origin main",
+  "redaction_status": "passed"
+}

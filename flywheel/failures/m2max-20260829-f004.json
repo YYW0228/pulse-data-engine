@@ -1,0 +1,21 @@
+{
+  "id": "m2max-20260829-f004",
+  "created_at": "2026-08-29T00:30:00+08:00",
+  "host": "m2max",
+  "project": "trio-infra",
+  "domain": "internal-ops",
+  "workflow": "ssh-access",
+  "harness": "hermes",
+  "skill": "ssh-connectivity-diagnostics",
+  "instruction": "打通 mini SSH 链路",
+  "input_hash": "f004aabbccddeeff",
+  "context_tokens_before": 1000,
+  "context_tokens_after": 1300,
+  "failure_modes": ["missing-error-handling"],
+  "target_use": "skill-gen",
+  "raw_input_stored": false,
+  "caught_stage": "manual",
+  "message": "SSH 密码认证连续失败后无锁定保护提示, 盲试用户名 8 个×2 设备全被拒, 实际是 macOS 用户名与主机名前缀不一致 (主机名 daoyuanlianghuadeMac-mini, 用户 mac)",
+  "command": "ssh <user>@192.168.0.6",
+  "redaction_status": "passed"
+}
