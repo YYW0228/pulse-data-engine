@@ -1,6 +1,6 @@
 # 情报简报: ai-governance-legal
 
-**生成时间**: 2026-08-03 01:48 UTC
+**生成时间**: 2026-08-03 20:08 UTC
 **数据源**: Google Search, Bing Search, Hacker News API, Reddit API
 **搜索关键词**: site:reddit.com/r/LocalLLaMA AI governance regulation China, site:reddit.com/r/LocalLLaMA DeepSeek algorithm compliance, site:reddit.com/r/LocalLLaMA open source AI license regulati, site:reddit.com/r/LocalLLaMA China AI safety regulation, China AI regulation algorithm filing 2025 2026 CAC, DeepSeek regulatory compliance China 2025, Chinese AI governance model training regulation, open source AI model regulation China policy
 **总发现数**: 0 条 (高相关: 0, 中相关: 0, 低相关: 0)
