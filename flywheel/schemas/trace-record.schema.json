@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "flywheel/trace-record.schema.json",
+  "title": "TraceRecord",
+  "description": "失败痕迹记录 — 三机飞轮共享格式。原始输入禁止存储 (raw_input_stored=false)。",
+  "type": "object",
+  "required": [
+    "id", "created_at", "host", "project", "domain", "workflow", "harness",
+    "skill", "instruction", "input_hash", "context_tokens_before",
+    "context_tokens_after", "failure_modes", "target_use",
+    "raw_input_stored", "caught_stage"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "id": { "type": "string", "description": "唯一 ID, 建议 host-date-seq" },
+    "created_at": { "type": "string", "format": "date-time", "description": "ISO 8601" },
+    "host": { "type": "string", "enum": ["m2max", "m1", "vps"] },
+    "project": { "type": "string" },
+    "domain": { "type": "string", "enum": ["course", "compliance", "sales", "internal-ops", "devops", "leadgen"] },
+    "workflow": { "type": "string", "description": "工作流名, 如 ingest_produce" },
+    "harness": { "type": "string", "enum": ["hermes", "pi", "manual"] },
+    "skill": { "type": "string", "description": "使用的技能名或空" },
+    "instruction": { "type": "string", "description": "任务指令摘要 (非原文)" },
+    "input_hash": { "type": "string", "description": "输入指纹 sha256 前 16 位" },
+    "context_tokens_before": { "type": "integer" },
+    "context_tokens_after": { "type": "integer" },
+    "failure_modes": { "type": "array", "items": { "type": "string" }, "description": "预定义 9 类 + 自由扩展" },
+    "target_use": { "type": "string", "description": "失败上下文用途, 如 eval|skill-gen|rule-fix" },
+    "raw_input_stored": { "type": "boolean", "const": false },
+    "caught_stage": { "type": "string", "enum": ["review", "manual", "pr", "qa_fail"] },
+    "message": { "type": "string", "description": "失败消息/错误签名 (脱敏后)" },
+    "command": { "type": "string", "description": "触发命令或步骤 (脱敏后)" },
+    "redaction_status": { "type": "string", "enum": ["passed", "pending"] }
+  }
+}
