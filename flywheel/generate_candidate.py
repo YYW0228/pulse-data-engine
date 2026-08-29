@@ -89,15 +89,18 @@ def generate(pattern: dict) -> Path | None:
 
 
 def update_queue(patterns: list[dict], proposals: set[str]) -> None:
-    """REVIEW_QUEUE 状态同步: 有提案的 pattern 标 [提案就绪]"""
+    """REVIEW_QUEUE 状态同步: 有提案的 pattern 标 [提案就绪] (幂等, 勿重复叠加)"""
     if not REVIEW_QUEUE.exists():
         return
     text = REVIEW_QUEUE.read_text(encoding="utf-8")
     for p in patterns:
         if p["pattern_id"] in proposals:
+            marker = f"[提案就绪] [{p['pattern_id']}]"
+            if marker in text:
+                continue  # 已标记过, 跳过 (re.sub 替换后行内仍含 [pid] 子串, 直接 replace 会重复叠加)
             # 兼容带序号格式: ### 1. [pid]
-            text = re.sub(rf"(### \d+\. )\[{p['pattern_id']}\]", rf"\1[提案就绪] [{p['pattern_id']}]", text)
-            text = text.replace(f"[{p['pattern_id']}]", f"[提案就绪] [{p['pattern_id']}]", 1)
+            text = re.sub(rf"(### \d+\. )\[{p['pattern_id']}\]", rf"\1{marker}", text)
+            text = text.replace(f"[{p['pattern_id']}]", marker, 1)
     REVIEW_QUEUE.write_text(text, encoding="utf-8")
 
 
