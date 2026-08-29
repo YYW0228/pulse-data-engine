@@ -131,7 +131,7 @@ def whisper_transcribe(url: str, workdir: Path, lang: str = "auto") -> Path | No
         ytdlp_cmd(
             [
                 "-f",
-                "bestaudio",
+                "bestaudio/best",
                 "--extract-audio",
                 "--audio-format",
                 "wav",

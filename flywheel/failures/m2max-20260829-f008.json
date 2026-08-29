@@ -1,0 +1,21 @@
+{
+  "id": "m2max-20260829-f008",
+  "created_at": "2026-08-29T22:30:00+08:00",
+  "host": "m2max",
+  "project": "pulse-data-engine",
+  "domain": "internal-ops",
+  "workflow": "ingest_produce",
+  "harness": "hermes",
+  "skill": "rag-material-factory",
+  "instruction": "转录冒烟测试 (YouTube 视频吞噬)",
+  "input_hash": "f008aabbccddeeff",
+  "context_tokens_before": 900,
+  "context_tokens_after": 1100,
+  "failure_modes": ["missing-error-handling"],
+  "target_use": "rule-fix",
+  "raw_input_stored": false,
+  "caught_stage": "manual",
+  "message": "ingest_produce 下载失败: -f bestaudio 无 fallback, YouTube HLS(m3u8) 流报 Requested format is not available; 修复: -f bestaudio/best",
+  "command": "yt-dlp --cookies-from-browser brave -f bestaudio --extract-audio <url>",
+  "redaction_status": "passed"
+}
