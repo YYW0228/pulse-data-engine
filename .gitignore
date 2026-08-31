@@ -50,3 +50,4 @@ data/llm_audit.jsonl
 # 运行时产物 (跨机 cron 生成, 周期性冲突源 — 不再跟踪)
 data/scene2_intel/
 data/livestream/
+.pregate/
