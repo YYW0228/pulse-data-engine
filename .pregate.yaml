@@ -1,0 +1,16 @@
+# pregate 门禁配置 — pulse-data-engine (试点适配 2026-08-31)
+# 核心不变量不可关闭: 全绿才转发 / fail closed
+# 适配点: 本项目为 uv 管理, 所有命令必须走 uv run (裸 pytest/ruff 会踩错解释器, 实测 blocked)
+lint_commands:
+  - "uv run ruff check ."
+  - "uv run ruff format --check ."
+lint_autofix:
+  - "uv run ruff check --fix ."
+test_commands:
+  - "uv run pytest -x -q"
+# review 使用 LLM (默认 DeepSeek), 无 key 时 fail closed; 单次 --skip=review 可跳过
+review:
+  enabled: true
+  model: "deepseek-chat"
+  api_key_env: "DEEPSEEK_API_KEY"
+  endpoint: "https://api.deepseek.com/chat/completions"
