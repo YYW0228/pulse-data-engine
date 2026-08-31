@@ -1,0 +1,9 @@
+{
+  "id": "vps-20260831-f001",
+  "created_at": "2026-08-31T15:35:00+08:00",
+  "host": "vps",
+  "project": "pregate-patrol",
+  "kind": "gate",
+  "summary": "门禁接入测试痕迹 (pregate-gate 验证)",
+  "resolved": false
+}
