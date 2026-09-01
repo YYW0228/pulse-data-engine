@@ -1,0 +1,13 @@
+{
+  "title": "SocialEcho：出海企业的高效社媒 AI 管理工作台",
+  "channel": "SocialEcho海外社媒管理",
+  "url": "https://www.youtube.com/watch?v=NsuDIHtyMZk",
+  "video_id": "NsuDIHtyMZk",
+  "duration": "1:42",
+  "ingested_at": "2026-09-01T18:05:33.332890+00:00",
+  "transcript_source": "whisper.cpp",
+  "self_score": 60,
+  "language": "auto",
+  "ingest_engine": "local-qwen3.5-9b",
+  "domain": "course"
+}

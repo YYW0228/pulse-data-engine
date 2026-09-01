@@ -5,8 +5,8 @@
   "priority": 2,
   "expected_value": 6,
   "context_question": "",
-  "status": "pending",
-  "approved_at": null,
+  "status": "approved",
+  "approved_at": "2026-09-01T18:03:02.437975+00:00",
   "done_at": null,
   "candidates_urls": [],
   "created_at": "2026-08-29T20:32:42.446646+00:00"
