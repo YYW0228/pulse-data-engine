@@ -20,11 +20,13 @@ dependencies = [
 
 [project.optional-dependencies]
 ml = [
-    "sentence-transformers>=3.0.0",
-    # macOS 生态坑: torch>=2.7 的 arm64 wheel 链接 3.13+ 私有符号
-    # (_PyDict_GetItemRef/_PyUnstable_EnableTryIncRef), 本机 CPython 构建均不导出;
-    # 2.6.0 是最后兼容 python.org 3.12 的版本 (2026-08 实测, 详见 harness-engineering 技能)
-    "torch==2.6.0",
+    # macOS 生态坑 (2026-09-02 复发实证): torch>=2.6.0 的 cpython-310 arm64 wheel
+    # 引用 3.13+ 私有符号 (_PyCode_GetVarnames) → ImportError 崩溃。
+    # 08-29 已验证组合 (venv=python3.10, brew 3.10.19): 2.4.1 + tf 4.46.3 + ST 3.3.1
+    # 勿再升级 torch, 除非 venv 迁移到 3.12+ 并重新实测 demo 13/13。
+    "sentence-transformers==3.3.1",
+    "transformers==4.46.3",
+    "torch==2.4.1",
 ]
 
 [dependency-groups]
