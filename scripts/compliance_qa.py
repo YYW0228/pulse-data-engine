@@ -484,6 +484,29 @@ def _route_model(query: str, chunks: list[dict]) -> str:
     return "deepseek-chat"
 
 
+def _rewrite_lowconf_query(query: str) -> str:
+    """低置信检索的 query 改写 (2026-09-02, 零成本规则版)
+
+    口语化/指代性提问 (我们公司/这份合同/什么时候) 会稀释 embedding 相似度,
+    导致检索质量差 → 误伤 0.6 低置信闸门。去掉口语停用词, 保留核心术语。
+    改写过短 (<4 字) → 回退原 query (避免破坏语义)。
+    """
+    stops = [
+        "我们公司", "贵公司", "本公司", "我们", "你们", "我们的", "你们的",
+        "这个", "这份", "这些", "那个", "哪些", "什么", "什么时候", "何时",
+        "多久", "怎么", "如何", "需要", "必须", "是否", "根据", "请",
+        "帮忙", "看一下", "有没有", "可以", "应该", "要", "的", "吗", "？", "?", "呢",
+    ]
+    q = query
+    for s in stops:
+        q = q.replace(s, " ")
+    q = re.sub(r"\s+", " ", q).strip()
+    return q if len(q) >= 4 else query
+
+
+REWRITE_STATS = {"runs": 0, "improved": 0, "fallback": 0}
+
+
 def _get_api_key() -> str | None:
     """从环境变量或 .env 读取 DeepSeek key"""
     key = os.environ.get("DEEPSEEK_API_KEY")
@@ -889,6 +912,27 @@ def answer(
     # ── 中间件链执行 (middleware_min): 意图/预算/loop 守卫按序运行 ──
     # 先编译检索块 (loop 守卫需要 chunks 指纹; budget 守卫独立)
     chunks = compile_context(query, top_k, mask_metadata=False, domain=domain)
+
+    # ── 低置信检索自修正 (2026-09-02): avg_sim < 0.6 → query 改写 + 加大召回重试 ──
+    # 口语化/指代提问稀释 embedding 相似度 → 误伤 0.6 闸门 (8502 合同缺失题实证)。
+    # 规则改写零成本; 改写后质量仍不升 → 保留原始 chunks (回答层仍会标低置信)。
+    if chunks:
+        _avg0 = sum(c["hits"] for c in chunks) / len(chunks)
+        if _avg0 < 0.6:
+            q2 = _rewrite_lowconf_query(query)
+            if q2 != query:
+                chunks2 = compile_context(q2, max(top_k, 6), mask_metadata=False, domain=domain)
+                if chunks2:
+                    _avg2 = sum(c["hits"] for c in chunks2) / len(chunks2)
+                    REWRITE_STATS["runs"] += 1
+                    if _avg2 > _avg0:
+                        chunks = chunks2
+                        REWRITE_STATS["improved"] += 1
+                        if tracer:
+                            tracer.step("query_rewrite", {"from": query, "to": q2,
+                                                          "sim": round(_avg0, 3), "sim2": round(_avg2, 3)})
+                    else:
+                        REWRITE_STATS["fallback"] += 1
     compile_ms = (time.time() - t0) * 1000
 
     guard_stop = _guards_run(query, chunks, budget, t0, tracer)
