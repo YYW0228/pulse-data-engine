@@ -1,0 +1,19 @@
+{
+  "id": "fail-20260902-g1-ytsearch-mismatch",
+  "created_at": "2026-09-01T18:20:00+00:00",
+  "host": "mac-m2max",
+  "project": "pulse-data-engine",
+  "domain": "course",
+  "workflow": "ingest_playlist_queue",
+  "harness": "rag-material-factory",
+  "skill": "rag-material-factory",
+  "instruction": "夜间G1: 消费选题队列 ai出海合规评估时机与流程 (approved, 无 candidates_urls, --ytsearch 抓候选吞噬)",
+  "input_hash": "sha256:ai-haichu-queue-20260901",
+  "context_tokens_before": 0,
+  "context_tokens_after": 0,
+  "failure_modes": ["candidate_topic_mismatch"],
+  "target_use": "ingest_playlist --queue --ytsearch 抓到的候选与选题主题不相关 (ytsearch3:'AI出海合规评估时机与流程' 首条=SocialEcho 社媒工具产品推广视频 1:42), 无相关性过滤即吞噬并标记选题 done_at; 产物模板评分 90 但内容无实质价值 (转录 615 字符)",
+  "raw_input_stored": false,
+  "caught_stage": "review",
+  "redaction_status": "clean"
+}

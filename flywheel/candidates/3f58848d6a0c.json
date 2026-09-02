@@ -1,20 +1,21 @@
 {
   "pattern_id": "3f58848d6a0c",
-  "count": 2,
+  "count": 3,
   "first_seen": "2026-08-26T15:00:00+08:00",
   "failure_modes": {
-    "missing-error-handling": 2
+    "missing-error-handling": 3
   },
   "hosts": {
-    "m2max": 2
+    "m2max": 3
   },
   "caught_stages": {
-    "manual": 1,
+    "manual": 2,
     "pr": 1
   },
   "representative": "yt-dlp -f bestaudio 报 Requested format is not available, 视频只有 m3u8 流, 需要 M3U8 直抓 + ffmpeg 转码",
   "failure_ids": [
     "m2max-20260829-f005",
-    "m2max-20260829-f007"
+    "m2max-20260829-f007",
+    "m2max-20260829-f008"
   ]
 }
