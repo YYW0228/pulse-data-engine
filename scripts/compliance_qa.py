@@ -1001,7 +1001,9 @@ def answer(
                 "model": model_name,
                 "messages": messages,
                 "temperature": 0.3,
-                "max_tokens": 1000,
+                # 2026-09-02: 1000→3000 — deepseek-reasoner 路由时 reasoning 吃光
+                # max_tokens → content 空 → 误判"上游异常"(8502 空回答实证)
+                "max_tokens": 3000,
             },
             timeout=60,
             source="compliance_qa.answer",
@@ -1116,7 +1118,7 @@ def _retry_empty_answer(api_key: str, messages: list[dict[str, str]], model_name
                 "model": model_name,
                 "messages": messages,
                 "temperature": 0.5,  # 略升温打破重复
-                "max_tokens": 1000,
+                "max_tokens": 3000,
             },
             timeout=60,
             source="compliance_qa._retry_empty_answer",
