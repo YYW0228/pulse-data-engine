@@ -19,4 +19,5 @@
 
 ## State
 goal_auto: active (2026-09-03)
-last_update: 2026-09-03 23:30
+last_update: 2026-09-04 04:00
+audit: 04:00 巡检 — 3 事件均属 G1 夜批自治链 (scene2_intel×4 入库 / 深度合成标识队列 done / 08-29 痕迹归档), 无目标项匹配, 状态不变
