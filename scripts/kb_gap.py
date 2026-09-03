@@ -7,9 +7,9 @@
   4. [自动] golden_eval 复评命中率
 
 用法:
-  uv run python scripts/kb_gap.py                 # 扫描 golden_set 期望词缺口 → data/kb_gap_report.md
-  uv run python scripts/kb_gap.py --json          # stdout JSON (供管道/CI)
-  uv run python scripts/kb_gap.py --set custom.json  # 自定义题目集 {question, expect}
+  uv run python -m scripts.kb_gap                 # 扫描 golden_set 期望词缺口 → data/kb_gap_report.md (2026-09-03 修正: -m 模块模式, scripts/ 前缀会模块冲突)
+  uv run python -m scripts.kb_gap --json          # stdout JSON (供管道/CI)
+  uv run python -m scripts.kb_gap --set custom.json  # 自定义题目集 {question, expect}
 
 判定:
   - 知识缺口: expect 词检索最高相似度 < SIM_THRESHOLD (0.52) → 知识库无该主题
