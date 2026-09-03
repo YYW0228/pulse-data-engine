@@ -1,0 +1,14 @@
+{
+  "title": "'China's Deepfake Regulations: navigating security, misinformation and innovation'  Prof Mimi Zou",
+  "channel": "Oxford Martin School",
+  "url": "https://www.youtube.com/watch?v=_bfoq5y6Rsw",
+  "video_id": "_bfoq5y6Rsw",
+  "duration": "1:15:39",
+  "ingested_at": "2026-09-03T19:14:29.276339+00:00",
+  "transcript_source": "whisper.cpp",
+  "self_score": 60,
+  "language": "en",
+  "ingest_engine": "local-qwen3.5-9b",
+  "domain": "course",
+  "note": "m3u8 长视频绕过下载超时 (yt-dlp 600s 限制), 手动抽音频+whisper 转写"
+}
