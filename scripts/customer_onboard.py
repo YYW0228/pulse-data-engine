@@ -41,11 +41,13 @@ TEMPLATE_README = """# 客户数据接入说明
 - 文档命名清晰 (如: 信息安全管理制度.md)
 - 敏感文档脱敏后再提供 (手机号/身份证/内部金额)
 
-## 接入流程 (我们执行)
+## 接入流程 (我们执行, 约 5 分钟)
 1. 文档放入 raw/
 2. 运行: uv run python -m scripts.customer_onboard --name <客户名>
-3. 输出: 独立向量库 + 接入报告 (REPORT.md)
-4. 验收: 30-50 道金标问题 → 命中率 ≥80%
+   → 独立向量库 + 接入报告 (REPORT.md)
+3. 运行: uv run python -m scripts.customer_accept --name <客户名>
+   → 自动出题 8 道 + 真实链路问答 → 命中率 ≥80% 即通过 (ACCEPTANCE.md)
+4. 通过后: serve_compliance 侧边栏选择该客户库即可现场演示
 """
 
 TEMPLATE_REPORT = """# 客户接入报告: {name}
