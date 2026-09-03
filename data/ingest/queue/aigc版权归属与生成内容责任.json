@@ -5,9 +5,11 @@
   "priority": 2,
   "expected_value": 6,
   "context_question": "",
-  "status": "pending",
-  "approved_at": null,
+  "status": "approved",
+  "approved_at": "2026-09-03T18:02:32.866724+00:00",
   "done_at": null,
-  "candidates_urls": [],
+  "candidates_urls": [
+    "https://youtu.be/JSKEaeYloYk"
+  ],
   "created_at": "2026-08-29T20:32:42.446554+00:00"
 }
