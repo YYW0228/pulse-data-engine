@@ -174,9 +174,48 @@ def main():
     print(f"\n=== 平均命中率: {avg*100:.1f}% {'✅ 通过' if passed else '❌ 未通过 (<80%)'} ===",
           file=sys.stderr)
 
+    # ── 回归门禁 (2026-09-03, 提案 A1): 结果持久化 + 逐题 baseline diff ──
+    # 背景: corpus 扩到 903 chunks/168 docs 后 top-k 稀释, 两题 08-14 基线 1.0 → 0.67
+    # 静默回归。从此每次运行落盘 eval_reports/, 并与最近一次同集基线对比,
+    # 单题降幅 ≥0.33 (如 1.0→0.67) 即告警 (stdout JSON 带 regressions 字段)。
+    report_dir = Path(__file__).resolve().parent.parent / "eval_reports"
+    report_dir.mkdir(exist_ok=True)
+    today = time.strftime("%Y-%m-%d")
+    out_path = report_dir / f"golden-{today}.json"
+
+    regressions = []
+    prev_paths = sorted(report_dir.glob("golden-*.json"))
+    prev_paths = [p for p in prev_paths if p.name != out_path.name]
+    if prev_paths:
+        try:
+            prev = json.loads(prev_paths[-1].read_text(encoding="utf-8"))
+            prev_map = {r["question"]: r["hit_rate"] for r in prev.get("results", [])}
+            for r in results:
+                p = prev_map.get(r["question"])
+                if p is not None and r["hit_rate"] < p - 0.33:
+                    regressions.append({
+                        "question": r["question"],
+                        "prev": p, "now": r["hit_rate"],
+                    })
+        except Exception:
+            pass  # 基线缺失/损坏 → 跳过 diff, 不影响本次结果
+    for rg in regressions:
+        print(f"⚠️ 回归告警: {rg['question'][:40]} {rg['prev']:.2f} → {rg['now']:.2f}",
+              file=sys.stderr)
+
     # stdout 只输出 JSON (进度走 stderr) — 2026-08-14 修复: 基线文件曾被进度文本污染
     print(json.dumps({"avg_hit_rate": round(avg, 3), "passed": passed,
+                      "regressions": regressions,
                       "results": results}, ensure_ascii=False, indent=2))
+    try:
+        out_path.write_text(
+            json.dumps({"avg_hit_rate": round(avg, 3), "passed": passed,
+                        "regressions": regressions, "results": results},
+                       ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+    except Exception:
+        pass  # 报告落盘失败不阻断
 
     sys.exit(0 if passed else 1)
 
