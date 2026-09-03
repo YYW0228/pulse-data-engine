@@ -7,10 +7,10 @@
   "context_question": "",
   "status": "approved",
   "approved_at": "2026-09-01T18:03:02.437975+00:00",
-  "done_at": null,
+  "done_at": "2026-09-03T18:35:42.602332+00:00",
   "candidates_urls": [
     "https://youtu.be/XkPfPZE-1x4"
   ],
   "created_at": "2026-08-29T20:32:42.446646+00:00",
-  "consumed_url": "https://youtu.be/NsuDIHtyMZk"
+  "consumed_url": "https://youtu.be/XkPfPZE-1x4"
 }
