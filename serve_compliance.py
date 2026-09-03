@@ -152,6 +152,27 @@ if prompt := st.chat_input("输入你的合规问题..."):
     with st.chat_message("user"):
         st.markdown(prompt)
 
+    # 真实问题采集 (2026-09-03): 客户提问落盘 → 周聚类 → eval 集扩容
+    try:
+        import json as _json
+        import time as _time
+        from pathlib import Path as _Path
+
+        _qa_log = _Path(__file__).resolve().parent / "data" / "qa_requests.jsonl"
+        _qa_log.parent.mkdir(exist_ok=True)
+        try:
+            from compliance_qa import _CUSTOMER_DB as _cdb
+        except Exception:
+            _cdb = None
+        with open(_qa_log, "a", encoding="utf-8") as _f:
+            _f.write(_json.dumps({
+                "ts": _time.strftime("%Y-%m-%d %H:%M:%S"),
+                "customer_db": _cdb,
+                "query": prompt,
+            }, ensure_ascii=False) + "\n")
+    except Exception:
+        pass  # 打点失败不影响问答
+
     with st.chat_message("assistant"):
         with st.spinner("检索法规文档中..."):
             try:
