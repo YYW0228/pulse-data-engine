@@ -21,8 +21,9 @@
 
 ## State
 goal_auto: active (2026-09-03)
-last_update: 2026-09-04 08:05
-audit: 08:05 巡检 — 事件 2 条 (bus_requests ce3f5ac60d51 + 190fbb26a2e1) = **07:00 环自身推送回声** (07:08 写入 inbox, 内容即 B1 撤回/B2 升级提案, 47ecf42 已处理归档), 无新信息; 60min 内无新提交 (HEAD=47ecf42, origin/main 同步, origin/feat 无新), proposals/2026-09-04.md 与 inbox 状态一致; 目标项维持: B1/B2/A2/C1/C2 均待 17:00 L3 审批, Art.50 吞噬项待 [mac] 执行; 无新 [pi] 变更 (B1/B2 消息已在 inbox, delivered:false 属 pi 未消费非未推送), 不推送
+last_update: 2026-09-04 09:07
+audit: 09:07 巡检 — monitor 变化 = 窗口滑出回声 (上轮 2 bus 190fbb26a2e1/ce3f5ac60d51 + proposals 标记滑出 60min 窗口, current=空), 非新事件; VPS inbox 无新增 (仍仅 07:06 两条, 内容即 B1 撤回/B2 升级, 待 17:00 L3, delivered:false 属 pi 未消费非未推送); 60min 无新提交 (HEAD=9e4df7a 08:05, origin/main 同步); proposals/2026-09-04.md mtime 07:04 未变; 目标项维持: B1 撤回/B2 执行/A2 收口/C1 golden_eval 门禁/C2 均待 17:00 L3 审批, Art.50 吞噬项待 [mac] 执行; 无新 [pi] 变更, 不推送
+audit_prev: 08:05 巡检 — 事件 2 条 (bus_requests ce3f5ac60d51 + 190fbb26a2e1) = **07:00 环自身推送回声** (07:08 写入 inbox, 内容即 B1 撤回/B2 升级提案, 47ecf42 已处理归档), 无新信息; 60min 内无新提交 (HEAD=47ecf42, origin/main 同步, origin/feat 无新), proposals/2026-09-04.md 与 inbox 状态一致; 目标项维持: B1/B2/A2/C1/C2 均待 17:00 L3 审批, Art.50 吞噬项待 [mac] 执行; 无新 [pi] 变更 (B1/B2 消息已在 inbox, delivered:false 属 pi 未消费非未推送), 不推送
 audit_prev: 07:08 巡检 — 事件 2 条: golden-2026-09-04.json (06:30 自动, 23 题 avg .986, 数据出境三方式连续第 2 日 0.67 缺词"标准合同") + proposals/2026-09-04.md (07:04 L2 环, 4 提案): B2 升级执行 / A2 收口 / C2 建议执行均获新证据, B1 建议撤回 (自愈证伪缺料, 撤回 09-03-B1), golden_eval 门禁对已知回归哑火 (diff 锚点错) → 新增 [mac] C1 修复项; 均待 17:00 L3 审批, 已同步 GOAL.md; [pi] B1/B2 状态更新 → 已推 agent-bus inbox 2 条 (ce3f5ac60d51/190fbb26a2e1)
 audit_prev: 06:01 巡检 — 事件 1 条 (ae66833) 即 05:00 环自身提交回声, 已于 05:01 归档, 无新信息; 60min 内无新提交 (HEAD=ae66833, origin 无新分支/提交), REVIEW_QUEUE.md 仅 1 行 flywheel 例行漂移; 目标项维持: G5 Art.50 吞噬项待 [mac] 执行 (唯一带素材边界真缺口); 无 [pi] 任务变更, 不推送
 audit_prev: 05:01 巡检 — G5 夜评 (5e7fa56) 新增 1 真缺料 Art.50 (条款级, 出口欧盟标识, 非本轮自动动作) → 新增 [mac] 吞噬项; 失败档 m2max-20260903-f001 (kb_gap docstring 调用) 已于 09-03 修正 (-m 模块模式), 夜链 exit 0 实证, 仅归档无需动作; 无 [pi] 任务变更
