@@ -8,12 +8,13 @@
 - [ ] 第一个付费客户 (¥5800 Tier 0 体验): BOSS L4 名单 91 家候选 → 触达节奏 (owner: 用户主导, mac 弹药)
 
 ## 技术支撑 (演示不打脸地基)
-- [ ] B1 补料: AI 治理岗位技能桥接料 (owner: [pi] 情报线, 来源: CAC 规定/JD/人社部目录) — 提案 2026-09-03-B1
-- [ ] B2 补料: 数据出境三路径锚点速查 (owner: [pi], 来源: 个保法38条/1万人阈值) — 提案 B2
+- [x] C1: 回归门禁锚点修复 (固定基线 08-14 + 整数比较) — 2026-09-04 落地, 数据出境三方式回归告警已生效 (owner: [mac])
+- [x] A1: 数据出境适用条件锚点题入 golden_set (regression_watch) — 2026-09-04 (owner: [mac])
+- [x] B1 补料: 数据出境三路径锚点速查 cn-data-outbound-three-routes.md 已建 + kb_refresh 入库 (owner: [mac], 2026-09-04)
+- [ ] B1 撤回确认: AI 治理岗位补料 (09-03-B1) — 0.67→1.0 自愈证伪缺料判定, 已建议撤回 (pi 推送 190fbb26a2e1, 待 17:00 复盘确认)
 - [ ] 吞噬: EU AI Act Art.50 透明度义务条款级素材 (原文/官方解读) 入库 (owner: [mac], 来源: G5 kb-gap-night 09-04, 唯一带素材边界真缺口, 覆盖 #3 并强化 #2/#8, acme 出口欧盟场景)
 - [ ] C2: kb_gap recall-gap 二级诊断 (owner: [mac]) — 提案 C2
 - [ ] C3: ytsearch 吞噬前置门禁 (owner: [mac]) — 提案 C3
-- [ ] A2: 标准合同锚点题拆词进 golden_set (owner: [mac]) — 提案 A2
 
 ## 自治链 (常驻, 不需人工)
 - golden-eval 06:30 / proposals 07:00 / pi-review 17:00 / 夜间链 G1-G5 (状态自动滚动)
