@@ -15,8 +15,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -74,6 +76,53 @@ def load_seen_ids() -> set[str]:
     return seen
 
 
+def _lcs_len(a: str, b: str) -> int:
+    """最长公共子串长度 (中文相关性子串匹配)"""
+    if not a or not b:
+        return 0
+    m, n = len(a), len(b)
+    dp = [0] * (n + 1)
+    best = 0
+    for i in range(1, m + 1):
+        prev = 0
+        for j in range(1, n + 1):
+            tmp = dp[j]
+            if a[i - 1] == b[j - 1]:
+                dp[j] = prev + 1
+                best = max(best, dp[j])
+            else:
+                dp[j] = 0
+            prev = tmp
+    return best
+
+
+def _title_relevant(title: str, topic: str, min_cn=4, min_latin=3) -> bool:
+    """候选标题与选题相关性预检 (C3 门禁, 2026-09-04)
+
+    中文: 标题与选题最长公共子串 ≥4 字 (去空白后)。
+    拉丁词: topic 中的拉丁词 (AI/RAG/GDPR...) 标题须含至少一个 (≥3 字符)。
+    例: topic "ai出海合规评估时机与流程" + SocialEcho 英文推广标题 → 0 匹配 → 拒。
+    """
+    t_norm = re.sub(r"\s+", "", title.lower())
+    q_norm = re.sub(r"\s+", "", topic.lower())
+    cn_ok = _lcs_len(t_norm, q_norm) >= min_cn
+    latin_words = re.findall(r"[a-z][a-z0-9\-]{2,}", q_norm)
+    latin_ok = (not latin_words) or any(w in t_norm for w in latin_words)
+    return cn_ok and latin_ok
+
+
+def _latest_ingest_md(after_ts: float, limit_sec: int = 120) -> Path | None:
+    """吞噬后找新产物 md (data/ingest/ 最近写入)"""
+    candidates = []
+    for d in (INGEST, SCENE2):
+        if d.exists():
+            candidates.extend(d.glob("*.md"))
+    fresh = [p for p in candidates if p.stat().st_mtime > after_ts]
+    if not fresh:
+        return None
+    return max(fresh, key=lambda p: p.stat().st_mtime)
+
+
 def consume_queue(args) -> int:
     """消费选题队列: approved 且未 done → 逐个 ingest_produce → 标记 done"""
     queue_dir = PROJECT / "data" / "ingest" / "queue"
@@ -96,29 +145,45 @@ def consume_queue(args) -> int:
     print(f"[queue] 待消费 {len(items)} 个选题")
 
     for f, m in items:
+        topic = m["topic"]
         urls = m.get("candidates_urls") or []
         if not urls:
             # 无 URL: ytsearch 抓 3 个候选 (仅当 --ytsearch 开启)
             if not getattr(args, "ytsearch", False):
-                print(f"  跳过 {m['topic']}: 无 candidates_urls (人工填 URL 或加 --ytsearch)")
+                print(f"  跳过 {topic}: 无 candidates_urls (人工填 URL 或加 --ytsearch)")
                 continue
             r = subprocess.run(
                 YTDLP_BASE
-                + ["--flat-playlist", "--print", "%(id)s|%(title)s", f"ytsearch3:{m['topic']}"],
+                + ["--flat-playlist", "--print", "%(id)s|%(title)s", f"ytsearch3:{topic}"],
                 capture_output=True,
                 text=True,
                 timeout=120,
             )
-            urls = [
-                f"https://youtu.be/{ln.split('|')[0].strip()}"
+            cands = [
+                (ln.split("|")[0].strip(), ln.split("|", 1)[1].strip() if "|" in ln else "")
                 for ln in r.stdout.splitlines()
                 if "|" in ln
             ]
+            # C3 门禁: 标题相关性预检 — 全不相关 → 记 skipped, 不吞噬不置 done
+            relevant = [(vid, t) for vid, t in cands if _title_relevant(t, topic)]
+            if not relevant:
+                m["skipped_at"] = datetime.now(timezone.utc).isoformat()
+                m["skipped_reason"] = (
+                    f"ytsearch 候选标题与选题不相关 (共 {len(cands)} 个): "
+                    + "; ".join(t[:40] for _, t in cands[:3])
+                )
+                f.write_text(json.dumps(m, ensure_ascii=False, indent=2), encoding="utf-8")
+                print(f"  ✗ {topic}: 候选全不相关, 跳过 (已记 skipped)")
+                continue
+            if len(relevant) < len(cands):
+                print(f"  [C3] {topic}: 过滤 {len(cands) - len(relevant)} 个不相关候选")
+            urls = [f"https://youtu.be/{vid}" for vid, _ in relevant]
         if not urls:
-            print(f"  跳过 {m['topic']}: 未找到候选 URL")
+            print(f"  跳过 {topic}: 未找到候选 URL")
             continue
         url = urls[0]
-        print(f"\n[{m['topic']}] 吞噬: {url}")
+        print(f"\n[{topic}] 吞噬: {url}")
+        before_ts = time.time()
         r = subprocess.run(
             [
                 sys.executable,
@@ -136,12 +201,23 @@ def consume_queue(args) -> int:
             timeout=3600,
         )
         if r.returncode == 0:
+            # C3 门禁: 产物长度下限 (转录提炼后 md 应 ≥1500 字符; 过短 = 内容无实质)
+            prod = _latest_ingest_md(before_ts)
+            if prod is None or prod.stat().st_size < 1500:
+                m["skipped_at"] = datetime.now(timezone.utc).isoformat()
+                m["skipped_reason"] = (
+                    f"产物过短: {prod.name if prod else '未找到'} "
+                    f"({prod.stat().st_size if prod else 0} 字节 < 1500), 内容无实质, 不置 done"
+                )
+                f.write_text(json.dumps(m, ensure_ascii=False, indent=2), encoding="utf-8")
+                print(f"  ✗ {topic}: 产物过短, 不置 done (已记 skipped)")
+                continue
             m["done_at"] = datetime.now(timezone.utc).isoformat()
             m["consumed_url"] = url
             f.write_text(json.dumps(m, ensure_ascii=False, indent=2), encoding="utf-8")
-            print(f"  ✓ {m['topic']} 完成")
+            print(f"  ✓ {topic} 完成 (产物 {prod.stat().st_size} 字节)")
         else:
-            print(f"  ⚠ {m['topic']} 吞噬失败, 保留队列")
+            print(f"  ⚠ {topic} 吞噬失败, 保留队列")
     return 0
 
 
