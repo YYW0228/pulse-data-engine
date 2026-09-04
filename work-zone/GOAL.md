@@ -13,7 +13,7 @@
 - [x] B1 补料: 数据出境三路径锚点速查 cn-data-outbound-three-routes.md 已建 + kb_refresh 入库 (owner: [mac], 2026-09-04)
 - [ ] B1 撤回确认: AI 治理岗位补料 (09-03-B1) — 0.67→1.0 自愈证伪缺料判定, 已建议撤回 (pi 推送 190fbb26a2e1, 待 17:00 复盘确认)
 - [ ] CI 红修复: ruff Tier1 2 错误 (scripts/golden_eval.py int(round()) 冗余 ×2, b0a306d 引入; ruff 0.16.0 本机/0.16.5 VPS 双端实证) → 修复提交 main 使 pregate-patrol 转绿 (owner: [mac], 来源: pregate-patrol bus 0a018c90e943 09-04 12:10, steer)
-- [ ] 吞噬: EU AI Act Art.50 透明度义务条款级素材 (原文/官方解读) 入库 (owner: [mac], 来源: G5 kb-gap-night 09-04, 唯一带素材边界真缺口, 覆盖 #3 并强化 #2/#8, acme 出口欧盟场景)
+- [x] 吞噬: EU AI Act Art.50 透明度义务条款级素材 (原文/官方解读) 入库 (owner: [mac], 来源: G5 kb-gap-night 09-04, 唯一带素材边界真缺口, 覆盖 #3 并强化 #2/#8, acme 出口欧盟场景) — 2026-09-05 05:01 依据 8de37e4 G5 夜评确认闭环: eu-ai-act-art50-transparency.md (09-04 13:02 建) kb_refresh 生效, kb_gap_report 零 knowledge-gap (corpus_hits=0 剔除后保留 0), covered 16/30→20/31
 - [x] C2: kb_gap recall-gap 二级诊断 (corpus 词频区分 recall/knowledge gap, 实测 13 recall:1 knowledge) — 2026-09-04 a32ff6e 落地入 main (owner: [mac])
 - [x] C3: ytsearch 吞噬前置门禁 (标题相关性 + 产物长度, 失败案例验证) — 2026-09-04 a32ff6e 落地入 main (owner: [mac])
 
@@ -22,8 +22,9 @@
 
 ## State
 goal_auto: active (2026-09-03)
-last_update: 2026-09-05 04:01
-audit: 04:01 巡检 — 事件 1 条: 97169ba (03:01) = 环自身回声 (该轮清点 inbox 无新消息已收尾), 无新信息; 清点 VPS inbox 确认无 03:01 后新消息 (最新仍为 4a47b9adfd42/27627d88eafd/2e9ddb48429b 等 8 条, 均已回执 delivered:true); origin/main HEAD=97169ba 后无修复提交, CI 红待办保持; 待办维持: CI 红修复 [mac] 首位 (ruff 2 错误 12:10→04:01 七巡逻确认未修), B1 撤回确认 (17:00 复盘), Art.50 吞噬; 无 [pi] 任务变更, 不推送
+last_update: 2026-09-05 05:01
+audit: 05:01 巡检 — 事件 2 条: (1) 86ac1d5 (04:01) = 环自身回声, 无新信息; (2) 8de37e4 (04:31) G5 kb_gap 夜评刷新: 缺口 17→13 行, 唯一真缺口 Art.50 补料闭环 (09-04 生效) 后零 knowledge-gap (10 项全 recall 型碎片 corpus_hits>0 料在库, 无独立选题价值, 保留 0), covered 16/30→20/31, 无补料任务下发 → Art.50 吞噬项勾 [x] 归档 (文件 eu-ai-act-art50-transparency.md 09-04 13:02 实证在盘); 新缺口 "1万人" (数据出境适用条件) 属 recall 型已被 B1 三路径速查覆盖, 无新任务; 清点 VPS inbox 无新消息 (最新仍 4a47b9adfd42 09-04 18:10, 均 delivered:true); 待办维持: CI 红修复 [mac] 首位 (ruff 2 错误, 12:10→05:01 八巡逻确认未修), B1 撤回确认 (17:00 复盘); 无 [pi] 任务变更, 不推送
+audit_prev: 04:01 巡检 — 事件 1 条: 97169ba (03:01) = 环自身回声 (该轮清点 inbox 无新消息已收尾), 无新信息; 清点 VPS inbox 确认无 03:01 后新消息 (最新仍为 4a47b9adfd42/27627d88eafd/2e9ddb48429b 等 8 条, 均已回执 delivered:true); origin/main HEAD=97169ba 后无修复提交, CI 红待办保持; 待办维持: CI 红修复 [mac] 首位 (ruff 2 错误 12:10→04:01 七巡逻确认未修), B1 撤回确认 (17:00 复盘), Art.50 吞噬; 无 [pi] 任务变更, 不推送
 audit_prev: 03:01 巡检 — 事件 1 条: 3d52689 (02:01) = 环自身回声 (该轮清点 inbox 无新消息已收尾), 无新信息; 清点 VPS inbox 确认无 02:01 后新消息 (最新仍为 4a47b9adfd42/0acdd4910c8f/27627d88eafd, 均已回执, 8 条全 delivered); HEAD=3d52689 后无修复提交, CI 红待办保持; 待办维持: CI 红修复 [mac] 首位 (ruff 2 错误 12:10→03:01 六巡逻确认未修), B1 撤回确认 (17:00 复盘), Art.50 吞噬; 无 [pi] 任务变更, 不推送
 audit_prev: 02:01 巡检 — 事件 1 条: 9bc4bc4 (01:02) = 环自身回声 (该轮已补回执 3 条漏窗 pi 消息并置 delivered:true), 无新信息; 清点 VPS inbox 确认无 01:02 后新消息 (最新仍为 4a47b9adfd42/0acdd4910c8f/27627d88eafd, 均已回执); HEAD=9bc4bc4 后无修复提交, CI 红待办保持; 待办维持: CI 红修复 [mac] 首位 (ruff 2 错误 12:10/18:10/00:10/01:02 巡逻持续确认未修), B1 撤回确认 (17:00 复盘), Art.50 吞噬; 无 [pi] 任务变更, 不推送
 audit_prev: 00:16 巡检 — 事件 2 条: (1) d21e1df42c48 (steer, pregate-patrol 20260905-0010) 再报 pulse-data-engine ruff Tier1 2 错误 = 与 0a018c90e943 (09-04 12:10) 同源同内容的第二次巡逻确认, 对应 CI 红修复待办 (首位) 仍未落地 (HEAD=19af6b4 14:01 后无修复提交, ruff 实测仍 2 错误) → 无新目标项, 该待办保持首位; (2) 2e9ddb48429b (low, daily-review 2026-09-04: 29 提交/4 bus/巡防有阻断/CI success/flywheel 3) 例行摘要, "巡防阻断" 与 (1) 同源, 无新目标含义; 两条 bus 均已回执 delivered:true; 待办维持: CI 红修复 [mac] (双巡逻确认 12:10+00:10), B1 撤回确认 (17:00 复盘), Art.50 吞噬; 无 [pi] 任务变更, 不推送
