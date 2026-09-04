@@ -39,6 +39,27 @@ def load_golden(path: Path) -> list[dict]:
     return data if isinstance(data, list) else data.get("questions", [])
 
 
+def _corpus_hits(word: str, db_path: Path | None = None) -> int:
+    """全库词频检查 (C2 二级诊断, 2026-09-04): 期望词是否真的存在于 corpus 文本
+
+    >0 → 料在库, 只是 top-k 检索没召回到 (recall-gap, 调检索不补料);
+    =0 → 料不在库 (knowledge-gap, 补料)。
+    """
+    import duckdb
+
+    path = db_path or ROOT / "data" / "compliance.duckdb"
+    try:
+        con = duckdb.connect(str(path), read_only=True)
+        n = con.execute(
+            "SELECT COUNT(*) FROM compliance_chunks WHERE content LIKE ? OR title LIKE ?",
+            [f"%{word}%", f"%{word}%"],
+        ).fetchone()[0]
+        con.close()
+        return int(n)
+    except Exception:
+        return -1  # DB 不可用 → 未知
+
+
 def scan_gap(golden: list[dict], top_k: int = 5, threshold: float = DEFAULT_THRESHOLD) -> dict:
     """扫描: 对每题 expect 词逐个检索, 输出缺口判定 (零 LLM, 只跑 embedding+检索)
 
@@ -80,19 +101,36 @@ def scan_gap(golden: list[dict], top_k: int = 5, threshold: float = DEFAULT_THRE
             if max_sim < threshold:
                 # 分级: <0.40 真知识缺口 (无料) | 0.40-阈值 边缘召回 (有料但相似度差)
                 level = "gap" if max_sim < 0.40 else "edge"
+                # C2 二级诊断 (2026-09-04): corpus 词频区分 recall-gap vs knowledge-gap
+                corpus_n = _corpus_hits(word)
+                kind = "recall" if corpus_n > 0 else ("knowledge" if corpus_n == 0 else "unknown")
                 concept_gaps.append({
                     "question": question, "expect_word": word,
                     "max_sim": round(max_sim, 3), "hits_docs": docs,
                     "ms": round((time.time() - t0) * 1000), "level": level,
+                    "corpus_hits": corpus_n, "gap_kind": kind,
                 })
-                q_gaps.append(word)
+                q_gaps.append({"word": word, "kind": kind})
 
-        # 题型判定: 有概念缺口 → 知识缺口; 全覆盖 → 覆盖缺口 (非补料)
+        # 题型判定 (C2): 概念缺口按 corpus 证据归类
+        #   recall 占多数 → recall-gap (料在检索稀释, 调检索策略)
+        #   knowledge 占多数 → knowledge-gap (料不在, 补料)
+        #   混合 → mixed (两类动作都做)
         if q_gaps:
+            kinds = [g["kind"] for g in q_gaps]
+            n_recall = kinds.count("recall")
+            n_know = kinds.count("knowledge")
+            if n_recall and not n_know:
+                gap_type = "recall"
+            elif n_know and not n_recall:
+                gap_type = "knowledge"
+            else:
+                gap_type = "mixed"
             question_gaps.append({
                 "question": question, "hit_rate": q.get("hit_rate", None),
-                "max_sim": round(q_max_sim, 3), "gap_type": "knowledge",
-                "missing": q_gaps,
+                "max_sim": round(q_max_sim, 3), "gap_type": gap_type,
+                "missing": [g["word"] for g in q_gaps],
+                "missing_kinds": kinds,
             })
         else:
             covered += 1
