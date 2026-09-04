@@ -184,21 +184,36 @@ def main():
     out_path = report_dir / f"golden-{today}.json"
 
     regressions = []
+    # C1 修复 (2026-09-04, 提案 P-2026-09-04-C1): diff 锚点 = 固定基线文件优先,
+    # 缺失才 fallback 上一份报告 — 原实现对比 prev report, 首日无 predecessor 即哑火,
+    # 且平台期 (0.67→0.67) 永不告警。阈值含边界 (round 后 <= prev - 0.33)。
+    baseline_candidates = []
+    fixed_baseline = Path(__file__).resolve().parent.parent / "data" / "golden_baseline_20260814.json"
+    if fixed_baseline.exists():
+        baseline_candidates.append(fixed_baseline)
     prev_paths = sorted(report_dir.glob("golden-*.json"))
     prev_paths = [p for p in prev_paths if p.name != out_path.name]
     if prev_paths:
+        baseline_candidates.append(prev_paths[-1])
+    prev_map: dict = {}
+    for cand in baseline_candidates:
         try:
-            prev = json.loads(prev_paths[-1].read_text(encoding="utf-8"))
-            prev_map = {r["question"]: r["hit_rate"] for r in prev.get("results", [])}
-            for r in results:
-                p = prev_map.get(r["question"])
-                if p is not None and r["hit_rate"] < p - 0.33:
-                    regressions.append({
-                        "question": r["question"],
-                        "prev": p, "now": r["hit_rate"],
-                    })
-        except Exception:
-            pass  # 基线缺失/损坏 → 跳过 diff, 不影响本次结果
+            prev = json.loads(cand.read_text(encoding="utf-8"))
+            m = {r["question"]: r["hit_rate"] for r in prev.get("results", [])}
+            if m:
+                prev_map = m
+                break
+        except Exception:  # noqa: S112 — 基线损坏跳过, 尝试下一候选
+            continue
+    for r in results:
+        p = prev_map.get(r["question"])
+        # 整数比较 (浮点精度坑: 1.0-0.33=0.66999... 导致 0.67<=0.67 判 False, 2026-09-04 实证)
+        if p is not None and int(round(r["hit_rate"] * 100)) <= int(round(p * 100)) - 33:
+            regressions.append({
+                "question": r["question"],
+                "prev": p, "now": r["hit_rate"],
+                "expect": r["expect"], "covered": r.get("covered", []),
+            })
     for rg in regressions:
         print(f"⚠️ 回归告警: {rg['question'][:40]} {rg['prev']:.2f} → {rg['now']:.2f}",
               file=sys.stderr)
