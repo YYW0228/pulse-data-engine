@@ -12,6 +12,7 @@
 - [x] A1: 数据出境适用条件锚点题入 golden_set (regression_watch) — 2026-09-04 (owner: [mac])
 - [x] B1 补料: 数据出境三路径锚点速查 cn-data-outbound-three-routes.md 已建 + kb_refresh 入库 (owner: [mac], 2026-09-04)
 - [ ] B1 撤回确认: AI 治理岗位补料 (09-03-B1) — 0.67→1.0 自愈证伪缺料判定, 已建议撤回 (pi 推送 190fbb26a2e1, 待 17:00 复盘确认)
+- [ ] CI 红修复: ruff Tier1 2 错误 (scripts/golden_eval.py int(round()) 冗余 ×2, b0a306d 引入; ruff 0.16.0 本机/0.16.5 VPS 双端实证) → 修复提交 main 使 pregate-patrol 转绿 (owner: [mac], 来源: pregate-patrol bus 0a018c90e943 09-04 12:10, steer)
 - [ ] 吞噬: EU AI Act Art.50 透明度义务条款级素材 (原文/官方解读) 入库 (owner: [mac], 来源: G5 kb-gap-night 09-04, 唯一带素材边界真缺口, 覆盖 #3 并强化 #2/#8, acme 出口欧盟场景)
 - [ ] C2: kb_gap recall-gap 二级诊断 (owner: [mac]) — 提案 C2
 - [ ] C3: ytsearch 吞噬前置门禁 (owner: [mac]) — 提案 C3
@@ -21,7 +22,7 @@
 
 ## State
 goal_auto: active (2026-09-03)
-last_update: 2026-09-04 12:05
-audit: 12:05 巡检 — 事件 2 条 (b0a306d C1 门禁锚点修复+A1 锚点题入集落地, 6944a24 状态归档) 即上午 C1/A1/B1 完成闭环的代码+goal 提交, 任务行均已 [x], 无重复动作; main 已含归档 (c90bf3c merge 后 main=权威); 待办维持: B1 撤回确认 (17:00 L3 复盘)、Art.50 吞噬、C2/C3; 无 [pi] 任务变更, 不推送
+last_update: 2026-09-04 13:03
+audit: 13:03 巡检 — 事件 1 条: pregate-patrol 12:10 bus 0a018c90e943 (steer, pi→hermes) — pulse-data-engine Tier1 ruff 门槛 2 错误 (scripts/golden_eval.py int(round()) 冗余 ×2, b0a306d 引入; ruff 0.16.0 本机/0.16.5 VPS 双端实证) → 新增 [mac] CI 红修复项置待办首位 (铁律: CI 红禁新功能); 已回执该 bus delivered:true; 其余维持: B1 撤回 (17:00 复盘), Art.50 吞噬, C2/C3; 无 [pi] 新任务, 不推送
+audit_prev: 12:05 巡检 — 事件 2 条 (b0a306d C1 门禁锚点修复+A1 锚点题入集落地, 6944a24 状态归档) 即上午 C1/A1/B1 完成闭环的代码+goal 提交, 任务行均已 [x], 无重复动作; main 已含归档 (c90bf3c merge 后 main=权威); 待办维持: B1 撤回确认 (17:00 L3 复盘)、Art.50 吞噬、C2/C3; 无 [pi] 任务变更, 不推送
 audit_prev: 06:01 巡检 — 事件 1 条 (ae66833) 即 05:00 环自身提交回声, 已于 05:01 归档, 无新信息; 60min 内无新提交 (HEAD=ae66833, origin 无新分支/提交), REVIEW_QUEUE.md 仅 1 行 flywheel 例行漂移; 目标项维持: G5 Art.50 吞噬项待 [mac] 执行 (唯一带素材边界真缺口); 无 [pi] 任务变更, 不推送
-audit_prev: 05:01 巡检 — G5 夜评 (5e7fa56) 新增 1 真缺料 Art.50 (条款级, 出口欧盟标识, 非本轮自动动作) → 新增 [mac] 吞噬项; 失败档 m2max-20260903-f001 (kb_gap docstring 调用) 已于 09-03 修正 (-m 模块模式), 夜链 exit 0 实证, 仅归档无需动作; 无 [pi] 任务变更
