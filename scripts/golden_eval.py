@@ -208,7 +208,7 @@ def main():
     for r in results:
         p = prev_map.get(r["question"])
         # 整数比较 (浮点精度坑: 1.0-0.33=0.66999... 导致 0.67<=0.67 判 False, 2026-09-04 实证)
-        if p is not None and int(round(r["hit_rate"] * 100)) <= int(round(p * 100)) - 33:
+        if p is not None and round(r["hit_rate"] * 100) <= round(p * 100) - 33:
             regressions.append({
                 "question": r["question"],
                 "prev": p, "now": r["hit_rate"],
