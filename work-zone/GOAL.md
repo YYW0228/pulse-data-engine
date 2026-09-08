@@ -17,13 +17,18 @@
 - [x] C2: kb_gap recall-gap 二级诊断 (corpus 词频区分 recall/knowledge gap, 实测 13 recall:1 knowledge) — 2026-09-04 a32ff6e 落地入 main (owner: [mac])
 - [x] C3: ytsearch 吞噬前置门禁 (标题相关性 + 产物长度, 失败案例验证) — 2026-09-04 a32ff6e 落地入 main (owner: [mac])
 
+## 挂起裁决 (bus 请示, 待 L3/用户, 本环不代决)
+- [ ] P-2026-09-08-1: lead-gen reports/l4-20260905.json (untracked 18KB, 挂起 4 复盘日 09-05→08) 二选一裁决: 随 boss-l4 G3 提交入库 (同 md b76a6ba 模式) vs 明确 gitignore (L4 名单数据敏感, VPS 不代提交) — owner: [mac]+用户, 来源: bus 61ca64b66aca (pi, steer, 09-08 17:05)
+- [ ] P-2026-09-08-2: flywheel vps-20260831-f001 (门禁测试痕迹, 未 resolved 8 日) 裁决: 采纳 pi 建议标 resolved=true 或移 failures/archive/ (既有先例) vs 维持 (flywheel 漂移铁律本环不碰) — owner: [mac]+用户, 来源: bus 61ca64b66aca (pi, steer, 09-08 17:05)
+
 ## 自治链 (常驻, 不需人工)
 - golden-eval 06:30 / proposals 07:00 / pi-review 17:00 / 夜间链 G1-G5 (状态自动滚动)
 
 ## State
 goal_auto: active (2026-09-03)
-last_update: 2026-09-08 16:01
-audit: 16:01 巡检 (09-08, 事件驱动唤醒) — 事件 1 条: 5af0984 (15:01) = 上一小时环自身回声 (其 audit 已完整处理: c241417 14:30 已消费/inbox 零未决已收尾), 无新信息; git log 15:01 后无新提交 (HEAD=5af0984); 16:01 实查 VPS inbox 零 delivered:false (COUNT=11, 最新仍 2fc96adb14ce 05:27 delivered:true, 全回执零未决); 待办维持: 触达开火 (录屏配音 → Cutout.Pro), 第一个付费客户 (BOSS L4); 无目标勾选/新增 (不强行编造), 无 [pi] 任务变更, 不推送
+last_update: 2026-09-08 17:06
+audit: 17:06 巡检 (09-08, 事件驱动唤醒) — 事件 1 条: 8868295 (16:01) = 上一小时环自身回声; **实查发现新 bus 61ca64b66aca** (pi→hermes, steer, 17:05 落盘, 上轮 audit 后到达): [daily-review 2026-09-08] VPS 链零运行失败 (连续第4日), 修复 daily-review REPOS 9→17 仓 (09-07 infra 9e6d10f 漏统计实证), 上游 57b52af 已收/环空窗 26h 已见记录/送达正常 — 例行全绿无任务含义; 内含 2 条 [请示] 决策请求: P-2026-09-08-1 lead-gen reports/l4-20260905.json (untracked 18KB, 挂起 4 复盘日 09-05→08, Mac 端二选一: boss-l4 G3 入库 vs gitignore, VPS 不代提交), P-2026-09-08-2 flywheel vps-20260831-f001 (门禁测试痕迹未 resolved 8 日, pi 建议 resolved=true/移 archive 有先例) — 均非本环可决 (lead-gen 数据敏感需用户偏好, flywheel 漂移铁律不碰) → **新增挂起裁决目标项 2 条** (owner [mac]+用户, 来源 bus 61ca64b66aca), 已回执该 bus delivered:true + reply 落 replies/61ca64b66aca.json (17:08); git log 16:01 后无其他新提交 (HEAD=8868295); inbox 12 条 (含新 61ca64b66aca) 全回执零未决; 待办维持: 触达开火 (录屏配音 → Cutout.Pro), 第一个付费客户 (BOSS L4); 无 [pi] 任务变更, 不推送
+audit_prev: 16:01 巡检 (09-08, 事件驱动唤醒) — 事件 1 条: 5af0984 (15:01) = 上一小时环自身回声 (其 audit 已完整处理: c241417 14:30 已消费/inbox 零未决已收尾), 无新信息; git log 15:01 后无新提交 (HEAD=5af0984); 16:01 实查 VPS inbox 零 delivered:false (COUNT=11, 最新仍 2fc96adb14ce 05:27 delivered:true, 全回执零未决); 待办维持: 触达开火 (录屏配音 → Cutout.Pro), 第一个付费客户 (BOSS L4); 无目标勾选/新增 (不强行编造), 无 [pi] 任务变更, 不推送
 audit_prev: 15:01 巡检 (09-08, 事件驱动唤醒) — 事件 1 条: c241417 (14:30) = 上一小时环自身回声 (其 audit 已完整处理: 空输出无新信息/05:25 已消费/inbox 零未决已收尾, 同 09-05 12:01 空输出先例), 无新信息; git log 14:30 后无新提交 (HEAD=c241417); 15:01 实查 VPS inbox 零 delivered:false (最新仍 2fc96adb14ce 05:27 delivered:true, 11 条全回执零未决); 待办维持: 触达开火 (录屏配音 → Cutout.Pro), 第一个付费客户 (BOSS L4); 无目标勾选/新增 (不强行编造), 无 [pi] 任务变更, 不推送
 audit_prev: 14:30 巡检 (09-08, 事件驱动唤醒) — 事件 1 条: monitor diff 上一捕获行 (57b52af 05:25 + bus_requests 2fc96adb14ce) 消失为空输出 = 环自身回声/上一捕获已消费, 无新信息 (同 09-05 12:01 空输出先例); git log 05:25 后无新提交 (HEAD=57b52af, 9h 无事件窗口 05:25→14:30: 无提交无 bus 变更未触发, 事件驱动正常); 14:32 实查 VPS inbox 零 delivered:false (最新仍 2fc96adb14ce 05:27 delivered:true 在盘, 11 条全回执零未决); 待办维持: 触达开火 (录屏配音 → Cutout.Pro), 第一个付费客户 (BOSS L4); 无目标勾选/新增 (不强行编造), 无 [pi] 任务变更, 不推送
 audit_prev: 05:25 巡检 (09-08, 环空窗后补跑) — 事件 1 条: monitor diff bus_requests 2fc96adb14ce (上一捕获含该行 → 本捕获空输出; SSH 实证文件在盘 delivered:false, inbox 唯一未决); 内容 = [daily-review 2026-09-07] 4 提交/0 bus/巡防全绿/CI success/flywheel 3 (pi, 09-07 23:30, low), 例行全绿日报 (同 01d2465f93e9/96ffc6c9b00a 型) 无诉求无新任务含义, 已回执 delivered:true; git log 09-07 03:00 (990d46d) 后无新提交 — GOAL.md 巡检链空窗 ~26h (03:00→05:25 无记录, 该日报滞留一夜未消费, 本环补处理, 余 10 条 inbox 全 delivered:true); 待办维持: 触达开火 (录屏配音 → Cutout.Pro), 第一个付费客户 (BOSS L4); 无目标勾选/新增 (例行日报, 不强行编造), 无 [pi] 任务变更, 不推送新任务
