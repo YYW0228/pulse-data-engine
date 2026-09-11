@@ -130,6 +130,8 @@ def whisper_transcribe(url: str, workdir: Path, lang: str = "auto") -> Path | No
     r = run(
         ytdlp_cmd(
             [
+                "-N",
+                "8",  # 并发分片 (2026-09-11): m3u8 单线程实测仅 ~130KB/s; 8 并发 ~1MB/s (7.8x)
                 "-f",
                 "bestaudio/best",
                 "--extract-audio",
@@ -141,7 +143,8 @@ def whisper_transcribe(url: str, workdir: Path, lang: str = "auto") -> Path | No
                 f"{audio_dir}/%(title)s.%(ext)s",
             ],
             url,
-        )
+        ),
+        timeout=1800,  # 下载超时加固 (2026-09-11): 600s 对大型 m3u8 (1080p≈270MB) 不足, 曾 560s 仅下 69MB 被击杀
     )
     if r.returncode != 0:
         return None
