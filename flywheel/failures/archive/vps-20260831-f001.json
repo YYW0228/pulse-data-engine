@@ -5,5 +5,7 @@
   "project": "pregate-patrol",
   "kind": "gate",
   "summary": "门禁接入测试痕迹 (pregate-gate 验证)",
-  "resolved": false
+  "resolved": true,
+  "resolved_reason": "gate 接入测试痕迹 (无 error 字段); P-2026-09-08-2 裁决: 采纳 pi 建议归档",
+  "resolved_at": "2026-09-11T12:57:22+0800"
 }

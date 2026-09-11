@@ -145,7 +145,7 @@ def render_queue(patterns: list[dict], now: str) -> str:
             f"- 分布: hosts={p['hosts']} stages={p['caught_stages']}",
             f"- 代表: {p['representative']}",
             f"- 失败: {', '.join(p['failure_ids'][:5])}",
-            f"- 状态: {state}",
+            f"- 状态: {state}{' [历史保留: 重建时未审批]' if p.get('carried_over') else ''}",
             "",
         ]
     if not patterns:
@@ -227,7 +227,22 @@ def main() -> int:
         clusters = cluster(failures)
         patterns = build_patterns(clusters)
         write_candidates(patterns)
-        print(f"聚类结果: {len(clusters)} 簇 → {len(patterns)} 个 pattern (≥{MIN_PATTERN_COUNT} 条)")
+        # C3 修复 (2026-09-11, P-2026-09-11-C3 第 4 次重申): 重建时合并保留未审批历史候选 —
+        # 原实现仅展示本次聚类结果, 未审批 candidates 会从队列消失 (3f58848d6a0c 三度丢失实证)
+        known = {p["pattern_id"] for p in patterns}
+        carried = 0
+        if CANDIDATES.exists():
+            for f in sorted(CANDIDATES.glob("*.json")):
+                try:
+                    c = json.loads(f.read_text(encoding="utf-8"))
+                except (json.JSONDecodeError, OSError):
+                    continue
+                if c.get("pattern_id") and c["pattern_id"] not in known:
+                    c["carried_over"] = True
+                    patterns.append(c)
+                    carried += 1
+        print(f"聚类结果: {len(clusters)} 簇 → {len(patterns)} 个 pattern (≥{MIN_PATTERN_COUNT} 条)"
+              + (f", 其中历史保留 {carried} 个" if carried else ""))
 
     REVIEW_QUEUE.write_text(render_queue(patterns, now), encoding="utf-8")
     print(f"REVIEW_QUEUE.md 已更新: {len(patterns)} 个待审 pattern")
