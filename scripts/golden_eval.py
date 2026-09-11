@@ -77,9 +77,11 @@ def evaluate_question(q: dict, top_k: int = 5, samples: int = 2) -> dict:
 
     question = q["question"]
     expects = q["expect"]
+    # A1 (2026-09-11 L3): flags.regression_watch 透传 — watch 题 miss 在 main() 汇总告警
+    watch = bool((q.get("flags") or {}).get("regression_watch"))
 
     best: dict = {"hit_rate": 0.0, "question": question, "expect": expects,
-                  "covered": [], "ms": 0, "success": False, "answer_head": ""}
+                  "covered": [], "ms": 0, "success": False, "answer_head": "", "watch": watch}
     for _ in range(samples):
         t0 = time.time()
         resp = None
@@ -108,6 +110,7 @@ def evaluate_question(q: dict, top_k: int = 5, samples: int = 2) -> dict:
                 "ms": round(ms),
                 "success": success,
                 "answer_head": resp[:100],
+                "watch": watch,
             }
         elif not success and best["answer_head"] == "":
             # 失败也留痕: 记录首条错误, 否则全失败时 JSON 只有空壳无法诊断
@@ -119,6 +122,7 @@ def evaluate_question(q: dict, top_k: int = 5, samples: int = 2) -> dict:
                 "ms": round(ms),
                 "success": False,
                 "answer_head": f"ERR: {resp[:120]}",
+                "watch": watch,
             }
 
     return best
@@ -162,8 +166,10 @@ def main():
     for i, r in enumerate(results):
         if not r["success"]:
             print(f"↻ 补跑失败题 [{i+1}] {r['question'][:40]}...", file=sys.stderr)
-            retry = evaluate_question({"question": r["question"], "expect": r["expect"]},
-                                      samples=1)
+            retry = evaluate_question(
+                {"question": r["question"], "expect": r["expect"],
+                 "flags": {"regression_watch": True} if r.get("watch") else {}},
+                samples=1)
             if retry["success"] and retry["hit_rate"] > r["hit_rate"]:
                 results[i] = retry
                 total_hit += retry["hit_rate"] - r["hit_rate"]
@@ -171,8 +177,6 @@ def main():
 
     avg = total_hit / len(results) if results else 0
     passed = avg >= PASS_THRESHOLD
-    print(f"\n=== 平均命中率: {avg*100:.1f}% {'✅ 通过' if passed else '❌ 未通过 (<80%)'} ===",
-          file=sys.stderr)
 
     # ── 回归门禁 (2026-09-03, 提案 A1): 结果持久化 + 逐题 baseline diff ──
     # 背景: corpus 扩到 903 chunks/168 docs 后 top-k 稀释, 两题 08-14 基线 1.0 → 0.67
@@ -218,19 +222,71 @@ def main():
         print(f"⚠️ 回归告警: {rg['question'][:40]} {rg['prev']:.2f} → {rg['now']:.2f}",
               file=sys.stderr)
 
-    # stdout 只输出 JSON (进度走 stderr) — 2026-08-14 修复: 基线文件曾被进度文本污染
-    print(json.dumps({"avg_hit_rate": round(avg, 3), "passed": passed,
-                      "regressions": regressions,
-                      "results": results}, ensure_ascii=False, indent=2))
+    # ── corpus 版本戳 + 归因快照 (2026-09-11 L3: P-2026-09-10-C1 / 09-11-C2) ──
+    corpus_meta: dict = {}
     try:
-        out_path.write_text(
-            json.dumps({"avg_hit_rate": round(avg, 3), "passed": passed,
-                        "regressions": regressions, "results": results},
-                       ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        import duckdb
+        _db = Path(__file__).resolve().parent.parent / "data" / "compliance.duckdb"
+        _con = duckdb.connect(str(_db), read_only=True)
+        _row = _con.execute("SELECT COUNT(*) FROM compliance_chunks").fetchone()
+        corpus_meta["chunks"] = int(_row[0]) if _row else 0
+        _con.close()
+    except Exception as e:
+        corpus_meta["error"] = str(e)[:120]
+    # 注: data/kb_refresh.log 停更 (mtime 2026-08-05), 以 DB 文件 mtime 为 corpus 最近写入戳
+    _dbf = Path(__file__).resolve().parent.parent / "data" / "compliance.duckdb"
+    if _dbf.exists():
+        corpus_meta["last_write"] = time.strftime(
+            "%Y-%m-%d %H:%M", time.localtime(_dbf.stat().st_mtime))
+    # 归因: regression/watch 题 expect 词 corpus_hits 快照 (0=真缺料转补料; >0=检索漂移)
+    _hits_fn = None
+    try:
+        from scripts.kb_gap import _corpus_hits as _hits_fn
     except Exception:
-        pass  # 报告落盘失败不阻断
+        _hits_fn = None
+    if _hits_fn:
+        for rg in regressions:
+            rg["corpus_hits"] = {w: _hits_fn(w) for w in rg.get("expect", [])}
+    # watch 题 miss (A1): 期望词未全中即告警
+    watch_misses = [r for r in results if r.get("watch") and r["hit_rate"] < 1.0]
+    if _hits_fn:
+        for w in watch_misses:
+            w["corpus_hits"] = {e: _hits_fn(e) for e in w.get("expect", [])}
+    for w in watch_misses:
+        print(f"⭐ watch 题 miss: {w['question'][:40]} {w['hit_rate']:.2f} covered={w.get('covered')}",
+              file=sys.stderr)
+    # 跌幅榜 Top3 (A2): 相对基线单题跌幅
+    drop_board = []
+    for r in results:
+        pv = prev_map.get(r["question"])
+        if pv is not None:
+            d = round(pv * 100) - round(r["hit_rate"] * 100)
+            if d > 0:
+                drop_board.append({"question": r["question"], "prev": pv,
+                                   "now": r["hit_rate"], "drop": round(d / 100, 2)})
+    drop_board.sort(key=lambda x: -x["drop"])
+    drop_board = drop_board[:3]
+    # WARN 口径 (A2): avg 过线但有显著回归/watch miss → 状态降级 warn (passed 字段保持兼容)
+    status = "fail" if not passed else ("warn" if (regressions or watch_misses) else "pass")
+    _suffix = {"pass": "✅ 通过", "warn": "⚠️ WARN (回归/watch miss)", "fail": "❌ 未通过 (<80%)"}[status]
+    if drop_board:
+        _top = "; ".join(f"{d['question'][:24]} -{d['drop']:.2f}" for d in drop_board)
+        print(f"跌幅榜 Top{len(drop_board)}: {_top}", file=sys.stderr)
+    print(f"\n=== 平均命中率: {avg*100:.1f}% {_suffix} ===", file=sys.stderr)
+
+    # stdout 只输出 JSON (进度走 stderr) — 2026-08-14 修复: 基线文件曾被进度文本污染
+    report = {"avg_hit_rate": round(avg, 3), "passed": passed, "status": status,
+              "regressions": regressions, "watch_misses": watch_misses,
+              "drop_board": drop_board, "corpus": corpus_meta, "results": results}
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+    if args.quick:
+        print("(quick 模式: 不落盘当日报告)", file=sys.stderr)
+    else:
+        try:
+            out_path.write_text(json.dumps(report, ensure_ascii=False, indent=2),
+                                encoding="utf-8")
+        except Exception:
+            pass  # 报告落盘失败不阻断
 
     sys.exit(0 if passed else 1)
 
