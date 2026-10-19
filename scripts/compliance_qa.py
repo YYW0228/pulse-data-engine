@@ -492,10 +492,40 @@ def _rewrite_lowconf_query(query: str) -> str:
     改写过短 (<4 字) → 回退原 query (避免破坏语义)。
     """
     stops = [
-        "我们公司", "贵公司", "本公司", "我们", "你们", "我们的", "你们的",
-        "这个", "这份", "这些", "那个", "哪些", "什么", "什么时候", "何时",
-        "多久", "怎么", "如何", "需要", "必须", "是否", "根据", "请",
-        "帮忙", "看一下", "有没有", "可以", "应该", "要", "的", "吗", "？", "?", "呢",
+        "我们公司",
+        "贵公司",
+        "本公司",
+        "我们",
+        "你们",
+        "我们的",
+        "你们的",
+        "这个",
+        "这份",
+        "这些",
+        "那个",
+        "哪些",
+        "什么",
+        "什么时候",
+        "何时",
+        "多久",
+        "怎么",
+        "如何",
+        "需要",
+        "必须",
+        "是否",
+        "根据",
+        "请",
+        "帮忙",
+        "看一下",
+        "有没有",
+        "可以",
+        "应该",
+        "要",
+        "的",
+        "吗",
+        "？",
+        "?",
+        "呢",
     ]
     q = query
     for s in stops:
@@ -626,6 +656,24 @@ except Exception:
     _loop_detector = None
 
 
+def _extract_content(data: dict, status_code: int) -> str:
+    """LLM 应答 body 统一提取: error.code/缺 choices → 显 "LLM service down" 异常.
+
+    2026-10-19 修复建议#2: 402 Insufficient Balance 等 API 错误 body 原经
+    data["choices"] KeyError 噪声 → golden_eval 23 假回归告警. 显 prefix
+    "LLM service down" — golden_eval 据此标记轮 INVALID(环境死) 而非 0%.
+    """
+    err = data.get("error")
+    if err or "choices" not in data:
+        if isinstance(err, dict):
+            code = str(err.get("code") or err.get("message") or "")
+        else:
+            code = str(err or "")
+        code = (code or "no_choices")[:120]
+        raise RuntimeError(f"LLM service down: HTTP {status_code} {code}")
+    return data["choices"][0]["message"]["content"]
+
+
 def _generate_handoff(
     history: list[dict[str, str]], api_key: str, model_name: str, tracer
 ) -> str | None:
@@ -668,8 +716,7 @@ def _generate_handoff(
             source="compliance_qa._generate_handoff",
         )
         resp.raise_for_status()
-        data = resp.json()
-        text = data["choices"][0]["message"]["content"].strip()
+        text = _extract_content(resp.json(), resp.status_code).strip()
         if tracer:
             tracer.step("handoff", {"summary_len": len(text)})
         # 摘要型压缩审计: 被折叠 = 未进入摘要输入窗口的早期历史 (hash 元数据)
@@ -929,8 +976,15 @@ def answer(
                         chunks = chunks2
                         REWRITE_STATS["improved"] += 1
                         if tracer:
-                            tracer.step("query_rewrite", {"from": query, "to": q2,
-                                                          "sim": round(_avg0, 3), "sim2": round(_avg2, 3)})
+                            tracer.step(
+                                "query_rewrite",
+                                {
+                                    "from": query,
+                                    "to": q2,
+                                    "sim": round(_avg0, 3),
+                                    "sim2": round(_avg2, 3),
+                                },
+                            )
                     else:
                         REWRITE_STATS["fallback"] += 1
     compile_ms = (time.time() - t0) * 1000
@@ -1069,7 +1123,7 @@ def answer(
                     tracer,
                     compaction_id=cid,
                 )
-        answer_text = data["choices"][0]["message"]["content"]
+        answer_text = _extract_content(data, resp.status_code)
         # 空回答重试 (上游偶发空 content — Error Handling)
         if not answer_text or not answer_text.strip():
             answer_text = _retry_empty_answer(api_key, messages, model_name)
@@ -1167,7 +1221,7 @@ def _retry_empty_answer(api_key: str, messages: list[dict[str, str]], model_name
             timeout=60,
             source="compliance_qa._retry_empty_answer",
         )
-        text = resp.json()["choices"][0]["message"]["content"]
+        text = _extract_content(resp.json(), resp.status_code)
         if text and text.strip():
             return text
     except Exception:
@@ -1225,7 +1279,7 @@ def _llm_call_with_retry(
             source="compliance_qa._llm_call_with_retry",
         )
         data = resp.json()
-        answer_text = data["choices"][0]["message"]["content"]
+        answer_text = _extract_content(data, resp.status_code)
         tokens_out = data.get("usage", {}).get("completion_tokens", len(answer_text) // 2)
         citations = answer_text.count("文档:")
         _record_metric(

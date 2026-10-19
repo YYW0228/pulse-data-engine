@@ -49,7 +49,7 @@ from scripts import compliance_qa  # noqa: F401
 #    `python -m scripts.golden_eval` 包模式会触发 torch dlopen ABI 崩
 #    (py3.10 venv + torch 2.6, _PyCode_GetVarnames 符号缺失)。
 os.environ["LLM_AUDIT_FUSE"] = "off"
-os.environ["LLM_AUDIT_EVAL"] = "1"   # 审计打 eval 标记: 循环检测/告警排除批量评测
+os.environ["LLM_AUDIT_EVAL"] = "1"  # 审计打 eval 标记: 循环检测/告警排除批量评测
 
 GOLDEN_SET = Path(__file__).resolve().parent.parent / "data" / "golden_set.json"
 PASS_THRESHOLD = 0.8
@@ -80,8 +80,16 @@ def evaluate_question(q: dict, top_k: int = 5, samples: int = 2) -> dict:
     # A1 (2026-09-11 L3): flags.regression_watch 透传 — watch 题 miss 在 main() 汇总告警
     watch = bool((q.get("flags") or {}).get("regression_watch"))
 
-    best: dict = {"hit_rate": 0.0, "question": question, "expect": expects,
-                  "covered": [], "ms": 0, "success": False, "answer_head": "", "watch": watch}
+    best: dict = {
+        "hit_rate": 0.0,
+        "question": question,
+        "expect": expects,
+        "covered": [],
+        "ms": 0,
+        "success": False,
+        "answer_head": "",
+        "watch": watch,
+    }
     for _ in range(samples):
         t0 = time.time()
         resp = None
@@ -95,6 +103,8 @@ def evaluate_question(q: dict, top_k: int = 5, samples: int = 2) -> dict:
                 break
             except Exception as e:
                 last_err = str(e)
+                if "LLM service down" in last_err:
+                    break  # 确定性服务死 (402 余额/模型迁移), 3x 重试无意义 → 快失效
                 time.sleep(1)
         if resp is None:
             resp = f"ERROR: {last_err}"
@@ -111,6 +121,7 @@ def evaluate_question(q: dict, top_k: int = 5, samples: int = 2) -> dict:
                 "success": success,
                 "answer_head": resp[:100],
                 "watch": watch,
+                "env_dead": False,
             }
         elif not success and best["answer_head"] == "":
             # 失败也留痕: 记录首条错误, 否则全失败时 JSON 只有空壳无法诊断
@@ -123,6 +134,7 @@ def evaluate_question(q: dict, top_k: int = 5, samples: int = 2) -> dict:
                 "success": False,
                 "answer_head": f"ERR: {resp[:120]}",
                 "watch": watch,
+                "env_dead": "LLM service down" in last_err,  # 生成层死 ≠ 质量 0%
             }
 
     return best
@@ -132,8 +144,9 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--quick", action="store_true", help="只跑前 10 题")
     parser.add_argument("--json", action="store_true")
-    parser.add_argument("--samples", type=int, default=2,
-                        help="每题采样次数 (默认 2; 3 用于稳定性评估, 耗时 x1.5)")
+    parser.add_argument(
+        "--samples", type=int, default=2, help="每题采样次数 (默认 2; 3 用于稳定性评估, 耗时 x1.5)"
+    )
     args = parser.parse_args()
 
     golden = load_golden()
@@ -158,22 +171,39 @@ def main():
         total_hit += r["hit_rate"]
         mark = "✅" if r["hit_rate"] >= 0.5 else "⚠️"
         print(f"{mark} [{i}/{len(golden)}] {r['question'][:40]}", file=sys.stderr)
-        print(f"    命中 {len(r['covered'])}/{len(r['expect'])} ({r['hit_rate']*100:.0f}%) "
-              f"{r['ms']}ms", file=sys.stderr)
+        print(
+            f"    命中 {len(r['covered'])}/{len(r['expect'])} ({r['hit_rate'] * 100:.0f}%) "
+            f"{r['ms']}ms",
+            file=sys.stderr,
+        )
 
     # 失败题补跑 (2026-09-03): 批量中偶发 0ms (torch dlopen 抖动/网络瞬时),
     # 同进程 3 次重试可能连败 → 批后给一次新进程级机会, 仍失败才是真问题
+    # ── 环境死轮判 (2026-10-19 修复建议#2): 生成层 402 等死 → 轮 INVALID ──
+    # 假场景: 每题 0% 与 baseline diff = 23x 假回归告风暴, 非质量信号. 过半题
+    # env_dead 即整轮判服务死: 禁补跑, 空 prev_map (禁 diff), status=invalid。
+    env_dead_n = sum(1 for r in results if r.get("env_dead"))
+    dead_round = env_dead_n >= max(1, len(results) // 2)
+    if dead_round:
+        print(
+            f"环境死轮判: {env_dead_n}/{len(results)} LLM service down → 补跑与回归 diff 跳过",
+            file=sys.stderr,
+        )
     for i, r in enumerate(results):
-        if not r["success"]:
-            print(f"↻ 补跑失败题 [{i+1}] {r['question'][:40]}...", file=sys.stderr)
+        if not r["success"] and not dead_round:
+            print(f"↻ 补跑失败题 [{i + 1}] {r['question'][:40]}...", file=sys.stderr)
             retry = evaluate_question(
-                {"question": r["question"], "expect": r["expect"],
-                 "flags": {"regression_watch": True} if r.get("watch") else {}},
-                samples=1)
+                {
+                    "question": r["question"],
+                    "expect": r["expect"],
+                    "flags": {"regression_watch": True} if r.get("watch") else {},
+                },
+                samples=1,
+            )
             if retry["success"] and retry["hit_rate"] > r["hit_rate"]:
                 results[i] = retry
                 total_hit += retry["hit_rate"] - r["hit_rate"]
-                print(f"  补跑通过: {retry['hit_rate']*100:.0f}%", file=sys.stderr)
+                print(f"  补跑通过: {retry['hit_rate'] * 100:.0f}%", file=sys.stderr)
 
     avg = total_hit / len(results) if results else 0
     passed = avg >= PASS_THRESHOLD
@@ -192,7 +222,9 @@ def main():
     # 缺失才 fallback 上一份报告 — 原实现对比 prev report, 首日无 predecessor 即哑火,
     # 且平台期 (0.67→0.67) 永不告警。阈值含边界 (round 后 <= prev - 0.33)。
     baseline_candidates = []
-    fixed_baseline = Path(__file__).resolve().parent.parent / "data" / "golden_baseline_20260814.json"
+    fixed_baseline = (
+        Path(__file__).resolve().parent.parent / "data" / "golden_baseline_20260814.json"
+    )
     if fixed_baseline.exists():
         baseline_candidates.append(fixed_baseline)
     prev_paths = sorted(report_dir.glob("golden-*.json"))
@@ -209,23 +241,31 @@ def main():
                 break
         except Exception:  # noqa: S112 — 基线损坏跳过, 尝试下一候选
             continue
+    if dead_round:
+        prev_map = {}  # 服务死轮: 禁 baseline diff (假 0% 即禁告)
     for r in results:
         p = prev_map.get(r["question"])
         # 整数比较 (浮点精度坑: 1.0-0.33=0.66999... 导致 0.67<=0.67 判 False, 2026-09-04 实证)
         if p is not None and round(r["hit_rate"] * 100) <= round(p * 100) - 33:
-            regressions.append({
-                "question": r["question"],
-                "prev": p, "now": r["hit_rate"],
-                "expect": r["expect"], "covered": r.get("covered", []),
-            })
+            regressions.append(
+                {
+                    "question": r["question"],
+                    "prev": p,
+                    "now": r["hit_rate"],
+                    "expect": r["expect"],
+                    "covered": r.get("covered", []),
+                }
+            )
     for rg in regressions:
-        print(f"⚠️ 回归告警: {rg['question'][:40]} {rg['prev']:.2f} → {rg['now']:.2f}",
-              file=sys.stderr)
+        print(
+            f"⚠️ 回归告警: {rg['question'][:40]} {rg['prev']:.2f} → {rg['now']:.2f}", file=sys.stderr
+        )
 
     # ── corpus 版本戳 + 归因快照 (2026-09-11 L3: P-2026-09-10-C1 / 09-11-C2) ──
     corpus_meta: dict = {}
     try:
         import duckdb
+
         _db = Path(__file__).resolve().parent.parent / "data" / "compliance.duckdb"
         _con = duckdb.connect(str(_db), read_only=True)
         _row = _con.execute("SELECT COUNT(*) FROM compliance_chunks").fetchone()
@@ -237,7 +277,8 @@ def main():
     _dbf = Path(__file__).resolve().parent.parent / "data" / "compliance.duckdb"
     if _dbf.exists():
         corpus_meta["last_write"] = time.strftime(
-            "%Y-%m-%d %H:%M", time.localtime(_dbf.stat().st_mtime))
+            "%Y-%m-%d %H:%M", time.localtime(_dbf.stat().st_mtime)
+        )
     # 归因: regression/watch 题 expect 词 corpus_hits 快照 (0=真缺料转补料; >0=检索漂移)
     _hits_fn = None
     try:
@@ -247,14 +288,18 @@ def main():
     if _hits_fn:
         for rg in regressions:
             rg["corpus_hits"] = {w: _hits_fn(w) for w in rg.get("expect", [])}
-    # watch 题 miss (A1): 期望词未全中即告警
-    watch_misses = [r for r in results if r.get("watch") and r["hit_rate"] < 1.0]
+    # watch 题 miss (A1): 期望词未全中即告警 (服务死题不计, env_dead 即环境信号)
+    watch_misses = [
+        r for r in results if r.get("watch") and r["hit_rate"] < 1.0 and not r.get("env_dead")
+    ]
     if _hits_fn:
         for w in watch_misses:
             w["corpus_hits"] = {e: _hits_fn(e) for e in w.get("expect", [])}
     for w in watch_misses:
-        print(f"⭐ watch 题 miss: {w['question'][:40]} {w['hit_rate']:.2f} covered={w.get('covered')}",
-              file=sys.stderr)
+        print(
+            f"⭐ watch 题 miss: {w['question'][:40]} {w['hit_rate']:.2f} covered={w.get('covered')}",
+            file=sys.stderr,
+        )
     # 跌幅榜 Top3 (A2): 相对基线单题跌幅
     drop_board = []
     for r in results:
@@ -262,33 +307,57 @@ def main():
         if pv is not None:
             d = round(pv * 100) - round(r["hit_rate"] * 100)
             if d > 0:
-                drop_board.append({"question": r["question"], "prev": pv,
-                                   "now": r["hit_rate"], "drop": round(d / 100, 2)})
+                drop_board.append(
+                    {
+                        "question": r["question"],
+                        "prev": pv,
+                        "now": r["hit_rate"],
+                        "drop": round(d / 100, 2),
+                    }
+                )
     drop_board.sort(key=lambda x: -x["drop"])
     drop_board = drop_board[:3]
     # WARN 口径 (A2): avg 过线但有显著回归/watch miss → 状态降级 warn (passed 字段保持兼容)
-    status = "fail" if not passed else ("warn" if (regressions or watch_misses) else "pass")
-    _suffix = {"pass": "✅ 通过", "warn": "⚠️ WARN (回归/watch miss)", "fail": "❌ 未通过 (<80%)"}[status]
+    # INVALID (2026-10-19): 环境死轮 ≠ 质量 fail — 待用户充值即 cron 重绿, 告层别定处理
+    if dead_round:
+        status = "invalid"
+    else:
+        status = "fail" if not passed else ("warn" if (regressions or watch_misses) else "pass")
+    _suffix = {
+        "pass": "✅ 通过",
+        "warn": "⚠️ WARN (回归/watch miss)",
+        "fail": "❌ 未通过 (<80%)",
+        "invalid": "INVALID (环境死: 生成层服务死, 非质量回归)",
+    }[status]
     if drop_board:
         _top = "; ".join(f"{d['question'][:24]} -{d['drop']:.2f}" for d in drop_board)
         print(f"跌幅榜 Top{len(drop_board)}: {_top}", file=sys.stderr)
-    print(f"\n=== 平均命中率: {avg*100:.1f}% {_suffix} ===", file=sys.stderr)
+    print(f"\n=== 平均命中率: {avg * 100:.1f}% {_suffix} ===", file=sys.stderr)
 
     # stdout 只输出 JSON (进度走 stderr) — 2026-08-14 修复: 基线文件曾被进度文本污染
-    report = {"avg_hit_rate": round(avg, 3), "passed": passed, "status": status,
-              "regressions": regressions, "watch_misses": watch_misses,
-              "drop_board": drop_board, "corpus": corpus_meta, "results": results}
+    report = {
+        "avg_hit_rate": round(avg, 3),
+        "passed": passed,
+        "status": status,
+        "env_dead_round": dead_round,
+        "env_dead_count": env_dead_n,
+        "regressions": regressions,
+        "watch_misses": watch_misses,
+        "drop_board": drop_board,
+        "corpus": corpus_meta,
+        "results": results,
+    }
     print(json.dumps(report, ensure_ascii=False, indent=2))
     if args.quick:
         print("(quick 模式: 不落盘当日报告)", file=sys.stderr)
     else:
         try:
-            out_path.write_text(json.dumps(report, ensure_ascii=False, indent=2),
-                                encoding="utf-8")
+            out_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
         except Exception:
             pass  # 报告落盘失败不阻断
 
-    sys.exit(0 if passed else 1)
+    # exit 2 = 环境死轮 (充值/换模型即重绿), 与质量 fail 1 即告层可分
+    sys.exit(2 if dead_round else (0 if passed else 1))
 
 
 if __name__ == "__main__":
