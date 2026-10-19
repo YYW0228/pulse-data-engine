@@ -1,6 +1,6 @@
 # 知识库补料缺口报告 (kb_gap)
 
-> 生成: 2026-09-13 04:33:03 | 扫描 31 题 | 阈值 sim ≥ 0.52 | 跳过短词 1
+> 生成: 2026-10-20 04:31:20 | 扫描 31 题 | 阈值 sim ≥ 0.52 | 跳过短词 1
 > 流程: 本报告确认 → 补文档进 china-ai-governance references/ → `uv run python -m scripts.kb_refresh --no-scrape` 入库 → golden_eval 复评
 
 ## 结论: 13 个概念缺口 / 11 题受影响 / 20 题知识覆盖完整
@@ -44,10 +44,3 @@
 2. 写成 markdown 放 china-ai-governance 对应 references/ (参考 ai-safety-testing-baseline.md 格式: 标题+要点+快速问答摘要)
 3. 入库: `uv run python -m scripts.kb_refresh --no-scrape`
 4. 复评: `uv run python scripts/golden_eval.py` (前台, 必须) — 命中率应上升
-
-## G5 夜间复评 (cron 04:30, 2026-09-13)
-
-> 复评 (2026-09-13): 13 行缺口 -> 10 个唯一期望词 -> 全部 recall 型 (corpus_hits 3~401 = 料在库) -> 剔除 10 (短词碎片, 全部 <4 字符, 无独立选题价值) -> 保留 0 (无新增有选题价值缺口)。零 knowledge-gap 连续第 5 次复评清零。
-> 与 09-12 对比: 词级清单一致 (清洗/生成/1万人/对抗/同意/30日/追责/显式/隐式/披露 十词不变), covered 20/31 无变化; 唯一 sim 漂移: 1万人 0.46->0.49 (+0.03, 语料日增), level/kind 无变化 (全部 edge/recall)。
-> 岗位题核查: 'AI治理岗位需要什么技能？' kb_gap 侧无 concept_gap (延续), golden 09-11/09-12 连续 2 期 100% (09-10 0.33 后回归); recall 漂移判定维持 (非补料)。
-> 动作: 无补料/选题任务下发 (碎片全剔除, 选题队列维持不变); 09-11/12 断档补跑后首个准点 04:30 夜跑。等待 06:30 golden_eval 自动回归。
